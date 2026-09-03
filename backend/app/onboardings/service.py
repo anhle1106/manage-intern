@@ -4,41 +4,54 @@ from app.database import get_db
 from app.common.exceptions import NotFoundError, BadRequestError
 
 
-async def _serialize(batch: dict) -> dict:
+async def _serialize_list(batches: list[dict]) -> list[dict]:
+    if not batches:
+        return []
     db = get_db()
-    leaders = []
-    for lid in batch.get("leader_ids", []):
-        user = await db.users.find_one({"_id": ObjectId(lid)})
-        if user:
-            leaders.append({
-                "id": str(user["_id"]),
-                "full_name": user["full_name"],
-                "email": user["email"],
-            })
+    # Collect all user ObjectIds across all batches
+    all_user_ids = set()
+    for b in batches:
+        for lid in b.get("leader_ids", []):
+            if lid:
+                all_user_ids.add(ObjectId(lid))
+        for iid in b.get("intern_ids", []):
+            if iid:
+                all_user_ids.add(ObjectId(iid))
 
-    interns = []
-    for iid in batch.get("intern_ids", []):
-        user = await db.users.find_one({"_id": ObjectId(iid)})
-        if user:
-            interns.append({
-                "id": str(user["_id"]),
-                "full_name": user["full_name"],
-                "email": user["email"],
-            })
+    # Single batch query for all users in one WAN request
+    user_map = {}
+    if all_user_ids:
+        cursor = db.users.find({"_id": {"$in": list(all_user_ids)}})
+        async for u in cursor:
+            user_map[str(u["_id"])] = {
+                "id": str(u["_id"]),
+                "full_name": u["full_name"],
+                "email": u["email"],
+            }
 
-    return {
-        "id": str(batch["_id"]),
-        "name": batch["name"],
-        "description": batch.get("description", ""),
-        "start_date": batch["start_date"],
-        "end_date": batch["end_date"],
-        "status": batch["status"],
-        "leaders": leaders,
-        "interns": interns,
-        "leader_ids": batch.get("leader_ids", []),
-        "intern_ids": batch.get("intern_ids", []),
-        "created_at": batch["created_at"].isoformat() if batch.get("created_at") else None,
-    }
+    serialized = []
+    for batch in batches:
+        leaders = [user_map[lid] for lid in batch.get("leader_ids", []) if lid in user_map]
+        interns = [user_map[iid] for iid in batch.get("intern_ids", []) if iid in user_map]
+        serialized.append({
+            "id": str(batch["_id"]),
+            "name": batch["name"],
+            "description": batch.get("description", ""),
+            "start_date": batch["start_date"],
+            "end_date": batch["end_date"],
+            "status": batch["status"],
+            "leaders": leaders,
+            "interns": interns,
+            "leader_ids": batch.get("leader_ids", []),
+            "intern_ids": batch.get("intern_ids", []),
+            "created_at": batch["created_at"].isoformat() if batch.get("created_at") else None,
+        })
+    return serialized
+
+
+async def _serialize(batch: dict) -> dict:
+    res = await _serialize_list([batch])
+    return res[0] if res else {}
 
 
 async def list_onboardings(user_id: str | None = None, role: str | None = None) -> list[dict]:
@@ -50,7 +63,8 @@ async def list_onboardings(user_id: str | None = None, role: str | None = None) 
         query["intern_ids"] = user_id
 
     cursor = db.onboardings.find(query).sort("created_at", -1)
-    return [await _serialize(b) async for b in cursor]
+    batches = [b async for b in cursor]
+    return await _serialize_list(batches)
 
 
 async def get_onboarding(onboarding_id: str) -> dict:
