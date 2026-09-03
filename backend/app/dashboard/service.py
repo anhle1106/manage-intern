@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 from bson import ObjectId
 from app.database import get_db
@@ -166,6 +167,8 @@ async def _get_progresses_grouped_by_batch(batches: list[dict]) -> list[dict]:
         } for b in batches]
 
     # 2. Parallel WAN execution for Users & Documents (with Lean Projections)
+    user_obj_ids = [ObjectId(i) for i in all_intern_ids if ObjectId.is_valid(i)]
+
     async def _fetch_users():
         cursor = db.users.find({"_id": {"$in": user_obj_ids}}, projection={"_id": 1, "full_name": 1, "email": 1})
         return {str(u["_id"]): u async for u in cursor}
