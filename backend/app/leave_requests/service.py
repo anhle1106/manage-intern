@@ -5,24 +5,40 @@ from app.common.enums import LeaveStatus
 from app.common.exceptions import NotFoundError, BadRequestError, ForbiddenError
 
 
-async def _serialize(req: dict) -> dict:
+async def _serialize_list(requests: list[dict]) -> list[dict]:
+    if not requests:
+        return []
     db = get_db()
-    user = await db.users.find_one({"_id": ObjectId(req["user_id"])})
-    return {
-        "id": str(req["_id"]),
-        "user_id": req["user_id"],
-        "user_name": user["full_name"] if user else "Unknown",
-        "leave_type": req["leave_type"],
-        "start_datetime": req["start_datetime"],
-        "end_datetime": req["end_datetime"],
-        "reason": req["reason"],
-        "attachment_url": req.get("attachment_url"),
-        "status": req["status"],
-        "created_schedule_id": req.get("created_schedule_id"),
-        "reviewed_by": req.get("reviewed_by"),
-        "reviewed_at": req["reviewed_at"].isoformat() if req.get("reviewed_at") else None,
-        "created_at": req["created_at"].isoformat() if req.get("created_at") else "",
-    }
+    user_ids = [ObjectId(r["user_id"]) for r in requests if ObjectId.is_valid(r.get("user_id"))]
+    user_map = {}
+    if user_ids:
+        cursor = db.users.find({"_id": {"$in": user_ids}})
+        async for u in cursor:
+            user_map[str(u["_id"])] = u.get("full_name", "Unknown")
+
+    results = []
+    for req in requests:
+        results.append({
+            "id": str(req["_id"]),
+            "user_id": req["user_id"],
+            "user_name": user_map.get(req["user_id"], "Unknown"),
+            "leave_type": req["leave_type"],
+            "start_datetime": req["start_datetime"],
+            "end_datetime": req["end_datetime"],
+            "reason": req["reason"],
+            "attachment_url": req.get("attachment_url"),
+            "status": req["status"],
+            "created_schedule_id": req.get("created_schedule_id"),
+            "reviewed_by": req.get("reviewed_by"),
+            "reviewed_at": req["reviewed_at"].isoformat() if req.get("reviewed_at") else None,
+            "created_at": req["created_at"].isoformat() if req.get("created_at") else "",
+        })
+    return results
+
+
+async def _serialize(req: dict) -> dict:
+    res = await _serialize_list([req])
+    return res[0] if res else {}
 
 
 async def list_leave_requests(
@@ -40,10 +56,8 @@ async def list_leave_requests(
         query["user_id"] = {"$in": intern_ids}
 
     cursor = db.leave_requests.find(query).sort("created_at", -1)
-    results = []
-    async for req in cursor:
-        results.append(await _serialize(req))
-    return results
+    reqs = [req async for req in cursor]
+    return await _serialize_list(reqs)
 
 
 async def create_leave_request(user_id: str, data: dict) -> dict:

@@ -19,55 +19,83 @@ def _serialize_audit(audit: dict) -> dict:
     }
 
 
-async def _serialize_topic(topic: dict, user_id: str | None = None, target_intern_id: str | None = None) -> dict:
+async def _serialize_topics_batch(topics: list[dict], user_id: str | None = None, target_intern_id: str | None = None) -> list[dict]:
+    if not topics:
+        return []
     db = get_db()
     effective_intern_id = target_intern_id or user_id
 
-    document_name = "Training Document"
-    if topic.get("document_id"):
-        try:
-            doc = await db.documents.find_one({"_id": ObjectId(topic["document_id"])})
-            if doc:
-                document_name = doc.get("filename", "Training Document")
-        except Exception:
-            pass
+    # 1. Collect all document ObjectIds and topic String IDs
+    doc_obj_ids = set()
+    topic_ids = []
+    for t in topics:
+        topic_ids.append(str(t["_id"]))
+        if t.get("document_id") and ObjectId.is_valid(t["document_id"]):
+            doc_obj_ids.add(ObjectId(t["document_id"]))
 
-    completed = False
-    completed_subtopics = []
+    # 2. Batch fetch documents
+    doc_map = {}
+    if doc_obj_ids:
+        docs_cursor = db.documents.find({"_id": {"$in": list(doc_obj_ids)}})
+        async for d in docs_cursor:
+            doc_map[str(d["_id"])] = d.get("filename", "Training Document")
+
+    # 3. Batch fetch learning progress for effective_intern_id
+    progress_map = {}
     if effective_intern_id:
-        progress = await db.learning_progress.find_one({
+        p_cursor = db.learning_progress.find({
             "user_id": effective_intern_id,
-            "topic_id": str(topic["_id"]),
+            "topic_id": {"$in": topic_ids},
         })
-        if progress:
-            completed = bool(progress.get("completed"))
-            completed_subtopics = progress.get("completed_subtopics", [])
+        async for p in p_cursor:
+            progress_map[p["topic_id"]] = p
 
-    # Fetch audit review for this topic and intern
-    audit_review = None
+    # 4. Batch fetch audit reviews for effective_intern_id
+    audit_map = {}
     if effective_intern_id:
-        audit = await db.audit_reviews.find_one({
-            "topic_id": str(topic["_id"]),
+        a_cursor = db.audit_reviews.find({
             "intern_id": effective_intern_id,
+            "topic_id": {"$in": topic_ids},
         })
-        if audit:
-            audit_review = _serialize_audit(audit)
+        async for a in a_cursor:
+            audit_map[a["topic_id"]] = _serialize_audit(a)
 
-    return {
-        "id": str(topic["_id"]),
-        "document_id": topic.get("document_id", ""),
-        "document_name": document_name,
-        "onboarding_id": topic.get("onboarding_id"),
-        "title": topic["title"],
-        "summary": topic["summary"],
-        "key_concepts": topic.get("key_concepts", []),
-        "subtopics": topic.get("subtopics", []),
-        "source_reference": topic.get("source_reference", ""),
-        "order": topic.get("order", 0),
-        "completed": completed,
-        "completed_subtopics": completed_subtopics,
-        "audit_review": audit_review,
-    }
+    results = []
+    for t in topics:
+        t_id_str = str(t["_id"])
+        document_name = doc_map.get(t.get("document_id", ""), "Training Document")
+        
+        completed = False
+        completed_subtopics = []
+        prog = progress_map.get(t_id_str)
+        if prog:
+            completed = bool(prog.get("completed"))
+            completed_subtopics = prog.get("completed_subtopics", [])
+
+        audit_review = audit_map.get(t_id_str)
+
+        results.append({
+            "id": t_id_str,
+            "document_id": t.get("document_id", ""),
+            "document_name": document_name,
+            "onboarding_id": t.get("onboarding_id"),
+            "title": t["title"],
+            "summary": t["summary"],
+            "key_concepts": t.get("key_concepts", []),
+            "subtopics": t.get("subtopics", []),
+            "source_reference": t.get("source_reference", ""),
+            "order": t.get("order", 0),
+            "completed": completed,
+            "completed_subtopics": completed_subtopics,
+            "audit_review": audit_review,
+        })
+
+    return results
+
+
+async def _serialize_topic(topic: dict, user_id: str | None = None, target_intern_id: str | None = None) -> dict:
+    res = await _serialize_topics_batch([topic], user_id, target_intern_id)
+    return res[0] if res else {}
 
 
 async def save_audit_review(leader: dict, data: dict) -> dict:
@@ -123,7 +151,8 @@ async def list_topics(
         query["onboarding_id"] = onboarding_id
 
     cursor = db.learning_topics.find(query).sort("order", 1)
-    return [await _serialize_topic(t, user_id, target_intern_id) async for t in cursor]
+    topics = [t async for t in cursor]
+    return await _serialize_topics_batch(topics, user_id, target_intern_id)
 
 
 async def get_topic(topic_id: str, user_id: str | None = None, target_intern_id: str | None = None) -> dict:
@@ -200,7 +229,8 @@ async def get_progress(
         query["onboarding_id"] = onboarding_id
 
     topics_cursor = db.learning_topics.find(query).sort("order", 1)
-    topics = [await _serialize_topic(t, user_id, effective_intern_id) async for t in topics_cursor]
+    raw_topics = [t async for t in topics_cursor]
+    topics = await _serialize_topics_batch(raw_topics, user_id, effective_intern_id)
 
     total_topics = len(topics)
     if total_topics == 0:
