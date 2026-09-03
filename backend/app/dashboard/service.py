@@ -20,85 +20,110 @@ async def _get_intern_doc_progresses(intern_ids_list: list[str], leader_id: str 
     if not intern_ids_list:
         return []
 
+    # 1. Batch fetch intern users
+    user_obj_ids = [ObjectId(i) for i in intern_ids_list if ObjectId.is_valid(i)]
+    users_cursor = db.users.find({"_id": {"$in": user_obj_ids}})
+    user_map = {str(u["_id"]): u async for u in users_cursor}
+
+    # 2. Batch fetch onboardings
+    batch_query = {"intern_ids": {"$in": intern_ids_list}}
+    if leader_id:
+        batch_query["leader_ids"] = leader_id
+
+    batches = await db.onboardings.find(batch_query).to_list(None)
+    batch_map_by_intern = {}
+    all_batch_ids = set()
+    for b in batches:
+        b_id = str(b["_id"])
+        all_batch_ids.add(b_id)
+        for iid in b.get("intern_ids", []):
+            if iid not in batch_map_by_intern:
+                batch_map_by_intern[iid] = []
+            batch_map_by_intern[iid].append(b)
+
+    # 3. Batch fetch documents
+    doc_query = {"$or": [{"onboarding_id": {"$in": list(all_batch_ids)}}, {"onboarding_id": None}]}
+    docs = await db.documents.find(doc_query).to_list(None)
+    doc_ids = [str(d["_id"]) for d in docs]
+
+    # 4. Batch fetch learning topics
+    topics = await db.learning_topics.find({"document_id": {"$in": doc_ids}}).to_list(None)
+    doc_topics_map = {}
+    for t in topics:
+        d_id = t.get("document_id")
+        if d_id not in doc_topics_map:
+            doc_topics_map[d_id] = []
+        doc_topics_map[d_id].append(t)
+
+    # 5. Batch fetch learning progress for all interns
+    progress_cursor = db.learning_progress.find({"user_id": {"$in": intern_ids_list}})
+    progress_map = {}
+    async for p in progress_cursor:
+        key = (p["user_id"], p["topic_id"])
+        progress_map[key] = p
+
+    # Build results in-memory
     results = []
     for iid in intern_ids_list:
-        try:
-            intern_user = await db.users.find_one({"_id": ObjectId(iid)})
-            if not intern_user:
+        intern_user = user_map.get(iid)
+        if not intern_user:
+            continue
+
+        intern_batches = batch_map_by_intern.get(iid, [])
+        if not intern_batches and leader_id:
+            continue
+
+        batch_names = [b["name"] for b in intern_batches]
+        intern_batch_ids = set(str(b["_id"]) for b in intern_batches)
+
+        # Relevant docs for this intern
+        relevant_docs = [d for d in docs if not d.get("onboarding_id") or str(d.get("onboarding_id")) in intern_batch_ids]
+
+        for d in relevant_docs:
+            doc_id_str = str(d["_id"])
+            t_list = doc_topics_map.get(doc_id_str, [])
+            if not t_list:
                 continue
 
-            batch_query = {"intern_ids": iid}
-            if leader_id:
-                # Strictly restrict to batches managed by this leader!
-                batch_query["leader_ids"] = leader_id
+            total_subtopics = 0
+            completed_subtopics = 0
+            completed_topics_count = 0
 
-            batches = await db.onboardings.find(batch_query).to_list(None)
-            batch_ids = [str(b["_id"]) for b in batches]
-            batch_names = [b["name"] for b in batches]
+            for t in t_list:
+                t_id = str(t["_id"])
+                subs = t.get("subtopics", [])
+                num_subs = len(subs) if subs else 1
+                total_subtopics += num_subs
 
-            if not batch_ids and leader_id:
-                # Intern has no batches managed by this leader, skip
-                continue
+                prog = progress_map.get((iid, t_id))
+                if prog:
+                    if prog.get("completed"):
+                        completed_subtopics += num_subs
+                        completed_topics_count += 1
+                    else:
+                        completed_subtopics += len(prog.get("completed_subtopics", []))
 
-            doc_query = {}
-            if batch_ids:
-                doc_query = {"$or": [{"onboarding_id": {"$in": batch_ids}}, {"onboarding_id": None}]}
+            pct = round((completed_subtopics / total_subtopics) * 100, 1) if total_subtopics > 0 else 0.0
 
-            docs = await db.documents.find(doc_query).to_list(None)
-            
-            for d in docs:
-                doc_id_str = str(d["_id"])
-                topics = await db.learning_topics.find({"document_id": doc_id_str}).to_list(None)
-                total_topics = len(topics)
-                if total_topics == 0:
-                    continue
+            doc_batch_name = "Chung"
+            if d.get("onboarding_id"):
+                matching_b = next((b for b in intern_batches if str(b["_id"]) == str(d["onboarding_id"])), None)
+                if matching_b:
+                    doc_batch_name = matching_b["name"]
 
-                topic_ids = [str(t["_id"]) for t in topics]
+            results.append({
+                "intern_id": iid,
+                "intern_name": intern_user["full_name"],
+                "intern_email": intern_user["email"],
+                "batch_names": batch_names,
+                "doc_id": doc_id_str,
+                "filename": d["filename"],
+                "doc_batch_name": doc_batch_name,
+                "total_topics": len(t_list),
+                "completed_topics": completed_topics_count,
+                "percentage": pct,
+            })
 
-                total_subtopics = 0
-                completed_subtopics = 0
-                for t in topics:
-                    subs = t.get("subtopics", [])
-                    num_subs = len(subs) if subs else 1
-                    total_subtopics += num_subs
-                    
-                    prog = await db.learning_progress.find_one({"user_id": iid, "topic_id": str(t["_id"])})
-                    if prog:
-                        if prog.get("completed"):
-                            completed_subtopics += num_subs
-                        else:
-                            completed_subtopics += len(prog.get("completed_subtopics", []))
-
-                completed_topics_count = await db.learning_progress.count_documents({
-                    "user_id": iid,
-                    "completed": True,
-                    "topic_id": {"$in": topic_ids},
-                })
-
-                percentage = round((completed_subtopics / total_subtopics) * 100, 1) if total_subtopics > 0 else 0.0
-
-                doc_batch_name = "Chung"
-                if d.get("onboarding_id"):
-                    matching_batch = next((b for b in batches if str(b["_id"]) == str(d["onboarding_id"])), None)
-                    if matching_batch:
-                        doc_batch_name = matching_batch["name"]
-
-                results.append({
-                    "intern_id": iid,
-                    "intern_name": intern_user["full_name"],
-                    "intern_email": intern_user["email"],
-                    "batch_names": batch_names,
-                    "doc_id": doc_id_str,
-                    "filename": d["filename"],
-                    "doc_batch_name": doc_batch_name,
-                    "total_topics": total_topics,
-                    "completed_topics": completed_topics_count,
-                    "percentage": percentage,
-                })
-        except Exception as e:
-            print(f"[Dashboard Progress Error] {e}")
-
-    # Sort Alphabetically (A-Z) by Intern Full Name
     results.sort(key=lambda x: x["intern_name"].lower())
     return results
 
