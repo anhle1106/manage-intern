@@ -1,0 +1,30 @@
+name: Gitleaks Security Scan
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+
+jobs:
+  gitleaks:
+    name: Check Env & Secrets Leak
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: 1. Checkout Code Repository (Full History)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 2. Install Gitleaks CLI (License-Free Open Source Engine)
+        run: |
+          wget https://github.com/gitleaks/gitleaks/releases/download/v8.18.2/gitleaks_8.18.2_linux_x64.tar.gz
+          tar -zxvf gitleaks_8.18.2_linux_x64.tar.gz
+          sudo mv gitleaks /usr/local/bin/
+
+      - name: 3. Run Gitleaks Security Scan
+        run: gitleaks detect --source . --verbose
