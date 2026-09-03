@@ -52,5 +52,12 @@ app.include_router(dashboard_router)
 
 
 @app.get("/")
+@app.get("/health")
+@app.get("/api/health")
 async def root():
-    return {"message": "DevOps Intern Platform API v2.0 is running"}
+    return {"message": "DevOps Intern Platform API v2.0 is running", "status": "ok"}
+
+
+@app.api_route("/api/schedules/public", methods=["GET", "POST"])
+async def public_schedules_fallback():
+    return {"status": "ok", "message": "Health probe OK"}
