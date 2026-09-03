@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Onboarding Groups - DevOps Intern Platform</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .onboarding-nav-pills {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .onboarding-pill {
+      padding: 10px 18px;
+      background-color: var(--bg-secondary);
+      color: var(--text-secondary);
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+      border: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .onboarding-pill:hover {
+      background-color: rgba(56, 189, 248, 0.1);
+      color: var(--primary);
+      border-color: var(--primary);
+    }
+    .onboarding-pill.active {
+      background-color: var(--primary);
+      color: #0f172a;
+      border-color: var(--primary);
+      box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3);
+    }
+    .member-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background-color: var(--bg-primary);
+      border-radius: var(--radius-sm);
+      margin-bottom: 6px;
+      font-size: 13px;
+      border: 1px solid var(--border-color);
+    }
+    .btn-remove-member {
+      background: none;
+      border: none;
+      color: var(--accent-rose);
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 14px;
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+    }
+    .btn-remove-member:hover {
+      background-color: rgba(244, 63, 94, 0.15);
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <div id="sidebar" class="sidebar"></div>
+
+    <main class="main-content">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Onboarding Groups & Batches</h1>
+          <p class="page-subtitle">Select your assigned onboarding group to view members, documents, and learning progress</p>
+        </div>
+        <div id="onboarding-actions">
+          <button class="btn btn-primary" onclick="openModal('create-batch-modal')">+ Create Batch</button>
+        </div>
+      </div>
+
+      <!-- Onboarding Group Nav Pills Bar -->
+      <div id="onboarding-nav-pills" class="onboarding-nav-pills">
+        <div style="color:var(--text-muted); font-size:13px;">Loading your onboarding groups...</div>
+      </div>
+
+      <!-- Selected Onboarding Group Detail Container -->
+      <div id="selected-batch-detail"></div>
+    </main>
+  </div>
+
+  <!-- Create Batch Modal -->
+  <div id="create-batch-modal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">Create Onboarding Batch</h3>
+        <button class="modal-close" onclick="closeModal('create-batch-modal')">&times;</button>
+      </div>
+      <form id="create-batch-form">
+        <div class="form-group">
+          <label class="form-label">Batch Name</label>
+          <input type="text" id="batch-name" class="form-control" placeholder="DevOps Intern K13" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea id="batch-desc" class="form-control" rows="2" placeholder="Summer cohort onboarding..."></textarea>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div class="form-group">
+            <label class="form-label">Start Date</label>
+            <input type="date" id="batch-start" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">End Date</label>
+            <input type="date" id="batch-end" class="form-control" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Status</label>
+          <select id="batch-status" class="form-control">
+            <option value="DRAFT">DRAFT</option>
+            <option value="ACTIVE" selected>ACTIVE</option>
+            <option value="COMPLETED">COMPLETED</option>
+            <option value="ARCHIVED">ARCHIVED</option>
+          </select>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('create-batch-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Batch</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add Member Modal -->
+  <div id="add-member-modal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="add-member-title">Add Member</h3>
+        <button class="modal-close" onclick="closeModal('add-member-modal')">&times;</button>
+      </div>
+      <form id="add-member-form">
+        <input type="hidden" id="member-batch-id">
+        <input type="hidden" id="member-type"> <!-- 'leader' or 'intern' -->
+        
+        <div class="form-group">
+          <label class="form-label" id="member-select-label">Select User</label>
+          <select id="member-user-id" class="form-control" required>
+            <option value="">Loading users...</option>
+          </select>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('add-member-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Add Member</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/app.js"></script>
+  <script src="/js/onboarding.js"></script>
+</body>
+</html>

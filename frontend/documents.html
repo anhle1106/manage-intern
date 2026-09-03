@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Training Documents - DevOps Intern Platform</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <div id="sidebar" class="sidebar"></div>
+
+    <main class="main-content">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Training Documents</h1>
+          <p class="page-subtitle">Upload PDF/DOCX training files for onboarding batches to generate AI learning roadmaps</p>
+        </div>
+        <div id="document-actions">
+          <button class="btn btn-primary" onclick="openModal('upload-doc-modal')">+ Upload Document</button>
+        </div>
+      </div>
+
+      <div class="card-section">
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>File Name</th>
+                <th>Onboarding Batch</th>
+                <th>Type</th>
+                <th>Size</th>
+                <th>AI Processing</th>
+                <th>Uploaded By</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="documents-table-body">
+              <tr><td colspan="7" style="text-align:center; color:var(--text-muted);">Loading documents...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Upload Document Modal -->
+  <div id="upload-doc-modal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">Upload Training Document</h3>
+        <button class="modal-close" onclick="closeModal('upload-doc-modal')">&times;</button>
+      </div>
+      <form id="upload-doc-form">
+        <div class="form-group">
+          <label class="form-label">Associated Onboarding Batch</label>
+          <select id="doc-onboarding" class="form-control" required>
+            <option value="">Select Onboarding Batch...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Select File (PDF or DOCX, max 10MB)</label>
+          <input type="file" id="doc-file" class="form-control" accept=".pdf,.docx" required>
+        </div>
+        <p style="font-size:12px; color:var(--text-muted); margin-bottom:16px;">
+          ⚡ Cloudinary stores the file and Gemini API analyzes the content to create a structured learning roadmap for the selected onboarding batch.
+        </p>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('upload-doc-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Upload & Process AI Roadmap</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/app.js"></script>
+  <script src="/js/documents.js"></script>
+</body>
+</html>

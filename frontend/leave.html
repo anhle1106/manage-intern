@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Leave Requests - DevOps Intern Platform</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <div id="sidebar" class="sidebar"></div>
+
+    <main class="main-content">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Leave Requests</h1>
+          <p class="page-subtitle">Submit, review, and track leave requests</p>
+        </div>
+        <div id="leave-actions">
+          <button class="btn btn-primary" onclick="openModal('create-leave-modal')">+ Create Leave Request</button>
+        </div>
+      </div>
+
+      <div class="card-section">
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>Intern Name</th>
+                <th>Leave Type</th>
+                <th>Start Time</th>
+                <th>End Time</th>
+                <th>Reason</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="leave-table-body">
+              <tr><td colspan="7" style="text-align:center; color:var(--text-muted);">Loading leave requests...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Create Leave Modal -->
+  <div id="create-leave-modal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">New Leave Request</h3>
+        <button class="modal-close" onclick="closeModal('create-leave-modal')">&times;</button>
+      </div>
+      <form id="create-leave-form">
+        <div class="form-group">
+          <label class="form-label">Leave Type</label>
+          <select id="leave-type" class="form-control" required>
+            <option value="UNIVERSITY">University Exam / Class</option>
+            <option value="SICK">Sick Leave</option>
+            <option value="PERSONAL">Personal Reason</option>
+            <option value="OTHER">Other</option>
+          </select>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div class="form-group">
+            <label class="form-label">Start Date & Time</label>
+            <input type="datetime-local" id="leave-start" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">End Date & Time</label>
+            <input type="datetime-local" id="leave-end" class="form-control" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Reason</label>
+          <textarea id="leave-reason" class="form-control" rows="3" placeholder="Provide a detailed reason for leave..." required></textarea>
+        </div>
+        <div class="form-group" style="background:var(--bg-elevated, #f8fafc); padding:10px; border-radius:6px; border:1px solid var(--border-color);">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; font-weight:600; color:var(--primary);">
+            <input type="checkbox" id="leave-create-schedule" checked>
+            <span>Tự động tạo & Thêm môn học vào Lịch học (University Schedule)</span>
+          </label>
+          <div style="margin-top:8px;">
+            <input type="text" id="leave-schedule-subject" class="form-control" placeholder="Tên môn học / Thi đột xuất (VD: Lịch thi Mạng máy tính)">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('create-leave-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Submit Request</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/app.js"></script>
+  <script src="/js/leave.js"></script>
+</body>
+</html>

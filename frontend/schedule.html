@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Schedule - DevOps Intern Platform</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <div id="sidebar" class="sidebar"></div>
+
+    <main class="main-content">
+      <div class="page-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
+        <div>
+          <h1 class="page-title">University & Intern Schedule</h1>
+          <p class="page-subtitle">Manage class schedules and check occupied time slots</p>
+        </div>
+        <div id="schedule-actions">
+          <button class="btn btn-primary" onclick="openModal('add-schedule-modal')">+ Add Schedule</button>
+        </div>
+      </div>
+
+      <div id="intern-selector-container" class="card-section" style="display:none; padding:16px;">
+        <label class="form-label" for="intern-select" style="margin-bottom:4px;">Select Intern to View Schedule:</label>
+        <select id="intern-select" class="form-control" style="max-width:300px;" onchange="loadInternSchedule(this.value)">
+          <option value="">Loading interns...</option>
+        </select>
+      </div>
+
+      <div class="card-section">
+        <div id="calendar-container" style="min-height: 550px;"></div>
+      </div>
+
+      <!-- Schedule Entries List with Delete Button -->
+      <div class="card-section" style="margin-top:24px;">
+        <div class="card-title" style="margin-bottom:14px;">📋 Danh sách Lịch bận cá nhân đã tạo</div>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>Tên môn / Lý do bận</th>
+                <th>Loại lịch</th>
+                <th>Khoảng ngày áp dụng</th>
+                <th>Khung giờ bận</th>
+                <th>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody id="schedule-table-body">
+              <tr><td colspan="5" style="text-align:center; color:var(--text-muted);">Đang tải danh sách lịch bận...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Add Schedule Modal -->
+  <div id="add-schedule-modal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">Tạo Lịch học / Lịch bận</h3>
+        <button class="modal-close" onclick="closeModal('add-schedule-modal')">&times;</button>
+      </div>
+      <form id="add-schedule-form">
+        <div class="form-group" style="margin-bottom:16px;">
+          <label class="form-label" style="font-weight:700;">Loại lịch bận</label>
+          <div style="display:flex; gap:16px; margin-top:6px;">
+            <label style="cursor:pointer; font-size:13px; display:flex; align-items:center; gap:6px; color:var(--text-primary, #f8fafc);">
+              <input type="radio" name="sched-type" value="ONETIME" checked onchange="toggleScheduleTypeUI('ONETIME')">
+              <span>🗓 Lịch bận theo Ngày cụ thể</span>
+            </label>
+            <label style="cursor:pointer; font-size:13px; display:flex; align-items:center; gap:6px; color:var(--text-primary, #f8fafc);">
+              <input type="radio" name="sched-type" value="RECURRING" onchange="toggleScheduleTypeUI('RECURRING')">
+              <span>🔄 Lịch học lặp lại hàng tuần theo Thứ</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Tên môn học / Lý do bận</label>
+          <input type="text" id="sched-subject" class="form-control" placeholder="VD: Môn Mạng máy tính / Lịch thi / Bận việc..." required>
+        </div>
+
+        <div id="recurring-days-group" class="form-group" style="display:none; background:var(--bg-secondary, #1e293b); padding:12px; border-radius:8px; border:1px solid var(--border-color, #334155); margin-bottom:14px;">
+          <label class="form-label" style="font-size:12px; font-weight:700; color:var(--text-primary, #f8fafc);">Chọn các Thứ lặp lại hàng tuần:</label>
+          <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;">
+            <label style="font-size:13px; cursor:pointer; color:var(--text-primary, #f8fafc); display:flex; align-items:center; gap:4px; background:var(--bg-primary, #0f172a); padding:6px 10px; border-radius:6px; border:1px solid var(--border-color, #334155);">
+              <input type="checkbox" name="sched-dow" value="0" checked> Thứ 2
+            </label>
+            <label style="font-size:13px; cursor:pointer; color:var(--text-primary, #f8fafc); display:flex; align-items:center; gap:4px; background:var(--bg-primary, #0f172a); padding:6px 10px; border-radius:6px; border:1px solid var(--border-color, #334155);">
+              <input type="checkbox" name="sched-dow" value="1" checked> Thứ 3
+            </label>
+            <label style="font-size:13px; cursor:pointer; color:var(--text-primary, #f8fafc); display:flex; align-items:center; gap:4px; background:var(--bg-primary, #0f172a); padding:6px 10px; border-radius:6px; border:1px solid var(--border-color, #334155);">
+              <input type="checkbox" name="sched-dow" value="2" checked> Thứ 4
+            </label>
+            <label style="font-size:13px; cursor:pointer; color:var(--text-primary, #f8fafc); display:flex; align-items:center; gap:4px; background:var(--bg-primary, #0f172a); padding:6px 10px; border-radius:6px; border:1px solid var(--border-color, #334155);">
+              <input type="checkbox" name="sched-dow" value="3" checked> Thứ 5
+            </label>
+            <label style="font-size:13px; cursor:pointer; color:var(--text-primary, #f8fafc); display:flex; align-items:center; gap:4px; background:var(--bg-primary, #0f172a); padding:6px 10px; border-radius:6px; border:1px solid var(--border-color, #334155);">
+              <input type="checkbox" name="sched-dow" value="4" checked> Thứ 6
+            </label>
+            <label style="font-size:13px; cursor:pointer; color:var(--text-primary, #f8fafc); display:flex; align-items:center; gap:4px; background:var(--bg-primary, #0f172a); padding:6px 10px; border-radius:6px; border:1px solid var(--border-color, #334155);">
+              <input type="checkbox" name="sched-dow" value="5"> Thứ 7
+            </label>
+            <label style="font-size:13px; cursor:pointer; color:var(--text-primary, #f8fafc); display:flex; align-items:center; gap:4px; background:var(--bg-primary, #0f172a); padding:6px 10px; border-radius:6px; border:1px solid var(--border-color, #334155);">
+              <input type="checkbox" name="sched-dow" value="6"> Chủ Nhật
+            </label>
+          </div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <label class="form-label" style="margin-bottom:0; font-weight:700;">Khung giờ bận</label>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="setAllDayTime()" style="font-size:11px; padding:3px 10px;">
+              ⚡ Chọn Nhanh Cả Ngày (06:00 - 23:00)
+            </button>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label" style="font-size:12px;">Giờ bắt đầu</label>
+              <input type="time" id="sched-start-time" class="form-control" required>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label" style="font-size:12px;">Giờ kết thúc</label>
+              <input type="time" id="sched-end-time" class="form-control" required>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div class="form-group">
+            <label class="form-label">Ngày bắt đầu</label>
+            <input type="date" id="sched-start-date" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Ngày kết thúc</label>
+            <input type="date" id="sched-end-date" class="form-control" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('add-schedule-modal')">Hủy</button>
+          <button type="submit" class="btn btn-primary">Lưu Lịch Bận</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/app.js"></script>
+  <script src="/js/schedule.js"></script>
+</body>
+</html>
