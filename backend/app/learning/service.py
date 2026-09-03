@@ -33,32 +33,40 @@ async def _serialize_topics_batch(topics: list[dict], user_id: str | None = None
         if t.get("document_id") and ObjectId.is_valid(t["document_id"]):
             doc_obj_ids.add(ObjectId(t["document_id"]))
 
-    # 2. Batch fetch documents
-    doc_map = {}
-    if doc_obj_ids:
-        docs_cursor = db.documents.find({"_id": {"$in": list(doc_obj_ids)}})
-        async for d in docs_cursor:
-            doc_map[str(d["_id"])] = d.get("filename", "Training Document")
+    # 2. Execute parallel queries over WAN with MongoDB Lean Projections
+    async def _fetch_docs():
+        if not doc_obj_ids:
+            return {}
+        cursor = db.documents.find(
+            {"_id": {"$in": list(doc_obj_ids)}},
+            projection={"_id": 1, "filename": 1}  # Lean projection
+        )
+        return {str(d["_id"]): d.get("filename", "Training Document") async for d in cursor}
 
-    # 3. Batch fetch learning progress for effective_intern_id
-    progress_map = {}
-    if effective_intern_id:
-        p_cursor = db.learning_progress.find({
+    async def _fetch_progress():
+        if not effective_intern_id:
+            return {}
+        cursor = db.learning_progress.find({
             "user_id": effective_intern_id,
             "topic_id": {"$in": topic_ids},
         })
-        async for p in p_cursor:
-            progress_map[p["topic_id"]] = p
+        return {p["topic_id"]: p async for p in cursor}
 
-    # 4. Batch fetch audit reviews for effective_intern_id
-    audit_map = {}
-    if effective_intern_id:
-        a_cursor = db.audit_reviews.find({
+    async def _fetch_audits():
+        if not effective_intern_id:
+            return {}
+        cursor = db.audit_reviews.find({
             "intern_id": effective_intern_id,
             "topic_id": {"$in": topic_ids},
         })
-        async for a in a_cursor:
-            audit_map[a["topic_id"]] = _serialize_audit(a)
+        return {a["topic_id"]: _serialize_audit(a) async for a in cursor}
+
+    # Parallel WAN execution of all 3 queries
+    doc_map, progress_map, audit_map = await asyncio.gather(
+        _fetch_docs(),
+        _fetch_progress(),
+        _fetch_audits()
+    )
 
     results = []
     for t in topics:

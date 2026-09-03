@@ -20,17 +20,21 @@ async def _get_intern_doc_progresses(intern_ids_list: list[str], leader_id: str 
     if not intern_ids_list:
         return []
 
-    # 1. Batch fetch intern users
+    # 1. Parallel fetch intern users & onboardings with Lean Projections
     user_obj_ids = [ObjectId(i) for i in intern_ids_list if ObjectId.is_valid(i)]
-    users_cursor = db.users.find({"_id": {"$in": user_obj_ids}})
-    user_map = {str(u["_id"]): u async for u in users_cursor}
+    
+    async def _fetch_users():
+        cursor = db.users.find({"_id": {"$in": user_obj_ids}}, projection={"_id": 1, "full_name": 1, "email": 1})
+        return {str(u["_id"]): u async for u in cursor}
 
-    # 2. Batch fetch onboardings
-    batch_query = {"intern_ids": {"$in": intern_ids_list}}
-    if leader_id:
-        batch_query["leader_ids"] = leader_id
+    async def _fetch_batches():
+        batch_query = {"intern_ids": {"$in": intern_ids_list}}
+        if leader_id:
+            batch_query["leader_ids"] = leader_id
+        return await db.onboardings.find(batch_query, projection={"_id": 1, "name": 1, "intern_ids": 1}).to_list(None)
 
-    batches = await db.onboardings.find(batch_query).to_list(None)
+    user_map, batches = await asyncio.gather(_fetch_users(), _fetch_batches())
+
     batch_map_by_intern = {}
     all_batch_ids = set()
     for b in batches:
@@ -41,26 +45,35 @@ async def _get_intern_doc_progresses(intern_ids_list: list[str], leader_id: str 
                 batch_map_by_intern[iid] = []
             batch_map_by_intern[iid].append(b)
 
-    # 3. Batch fetch documents
-    doc_query = {"$or": [{"onboarding_id": {"$in": list(all_batch_ids)}}, {"onboarding_id": None}]}
-    docs = await db.documents.find(doc_query).to_list(None)
+    # 2. Parallel fetch docs, topics & progress with Lean Projections
+    async def _fetch_docs():
+        doc_query = {"$or": [{"onboarding_id": {"$in": list(all_batch_ids)}}, {"onboarding_id": None}]}
+        return await db.documents.find(doc_query, projection={"_id": 1, "filename": 1, "onboarding_id": 1}).to_list(None)
+
+    docs = await _fetch_docs()
     doc_ids = [str(d["_id"]) for d in docs]
 
-    # 4. Batch fetch learning topics
-    topics = await db.learning_topics.find({"document_id": {"$in": doc_ids}}).to_list(None)
+    async def _fetch_topics():
+        return await db.learning_topics.find(
+            {"document_id": {"$in": doc_ids}},
+            projection={"_id": 1, "document_id": 1, "subtopics": 1}
+        ).to_list(None)
+
+    async def _fetch_progress():
+        cursor = db.learning_progress.find(
+            {"user_id": {"$in": intern_ids_list}},
+            projection={"_id": 1, "user_id": 1, "topic_id": 1, "completed": 1, "completed_subtopics": 1}
+        )
+        return {(p["user_id"], p["topic_id"]): p async for p in cursor}
+
+    topics, progress_map = await asyncio.gather(_fetch_topics(), _fetch_progress())
+
     doc_topics_map = {}
     for t in topics:
         d_id = t.get("document_id")
         if d_id not in doc_topics_map:
             doc_topics_map[d_id] = []
         doc_topics_map[d_id].append(t)
-
-    # 5. Batch fetch learning progress for all interns
-    progress_cursor = db.learning_progress.find({"user_id": {"$in": intern_ids_list}})
-    progress_map = {}
-    async for p in progress_cursor:
-        key = (p["user_id"], p["topic_id"])
-        progress_map[key] = p
 
     # Build results in-memory
     results = []
@@ -152,21 +165,36 @@ async def _get_progresses_grouped_by_batch(batches: list[dict]) -> list[dict]:
             "interns": [],
         } for b in batches]
 
-    # 2. Batch fetch all intern users in 1 query
-    user_obj_ids = [ObjectId(i) for i in all_intern_ids if ObjectId.is_valid(i)]
-    users_cursor = db.users.find({"_id": {"$in": user_obj_ids}})
-    user_map = {str(u["_id"]): u async for u in users_cursor}
+    # 2. Parallel WAN execution for Users & Documents (with Lean Projections)
+    async def _fetch_users():
+        cursor = db.users.find({"_id": {"$in": user_obj_ids}}, projection={"_id": 1, "full_name": 1, "email": 1})
+        return {str(u["_id"]): u async for u in cursor}
 
-    # 3. Batch fetch all documents
-    docs = await db.documents.find({
-        "$or": [{"onboarding_id": {"$in": all_batch_id_strs}}, {"onboarding_id": None}]
-    }).to_list(None)
+    async def _fetch_docs():
+        return await db.documents.find(
+            {"$or": [{"onboarding_id": {"$in": all_batch_id_strs}}, {"onboarding_id": None}]},
+            projection={"_id": 1, "filename": 1, "onboarding_id": 1}
+        ).to_list(None)
 
+    user_map, docs = await asyncio.gather(_fetch_users(), _fetch_docs())
     doc_ids = [str(d["_id"]) for d in docs]
 
-    # 4. Batch fetch all learning topics
-    topics = await db.learning_topics.find({"document_id": {"$in": doc_ids}}).to_list(None)
-    
+    # 3. Parallel WAN execution for Topics & Learning Progress (with Lean Projections)
+    async def _fetch_topics():
+        return await db.learning_topics.find(
+            {"document_id": {"$in": doc_ids}},
+            projection={"_id": 1, "document_id": 1, "subtopics": 1}
+        ).to_list(None)
+
+    async def _fetch_progress():
+        cursor = db.learning_progress.find(
+            {"user_id": {"$in": list(all_intern_ids)}},
+            projection={"_id": 1, "user_id": 1, "topic_id": 1, "completed": 1, "completed_subtopics": 1}
+        )
+        return {(p["user_id"], p["topic_id"]): p async for p in cursor}
+
+    topics, progress_map = await asyncio.gather(_fetch_topics(), _fetch_progress())
+
     # Map topics by document_id
     doc_topics_map = {}
     for t in topics:
@@ -174,13 +202,6 @@ async def _get_progresses_grouped_by_batch(batches: list[dict]) -> list[dict]:
         if d_id not in doc_topics_map:
             doc_topics_map[d_id] = []
         doc_topics_map[d_id].append(t)
-
-    # 5. Batch fetch all learning_progress for all interns in 1 query
-    progress_cursor = db.learning_progress.find({"user_id": {"$in": list(all_intern_ids)}})
-    progress_map = {}
-    async for p in progress_cursor:
-        key = (p["user_id"], p["topic_id"])
-        progress_map[key] = p
 
     # Build response in-memory
     group_results = []
