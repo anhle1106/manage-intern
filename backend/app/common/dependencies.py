@@ -20,18 +20,12 @@ async def get_current_user(
             algorithms=[settings.jwt_algorithm],
         )
         user_id = payload.get("sub")
+        role = payload.get("role")
         if not user_id:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
+        return {"id": user_id, "_id": user_id, "role": role}
     except JWTError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
-
-    db = get_db()
-    user = await db.users.find_one({"_id": ObjectId(user_id), "is_active": True})
-    if not user:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
-
-    user["id"] = str(user["_id"])
-    return user
 
 
 def require_roles(*roles: Role):

@@ -34,9 +34,14 @@ def decode_token(token: str) -> dict:
         raise UnauthorizedError(f"Invalid or expired token: {e}")
 
 
+import asyncio
+
 async def authenticate(email: str, password: str) -> dict:
     db = get_db()
     user = await db.users.find_one({"email": email, "is_active": True})
-    if not user or not verify_password(password, user["hashed_password"]):
+    if not user:
+        raise BadRequestError("Invalid email or password")
+    is_valid = await asyncio.to_thread(verify_password, password, user["hashed_password"])
+    if not is_valid:
         raise BadRequestError("Invalid email or password")
     return user
