@@ -89,18 +89,30 @@ async def seed_data():
             "created_at": now,
         })
 
-    print("Creating onboarding batch...")
-    onboarding_res = await db.onboardings.insert_one({
+    print("Creating onboarding batches...")
+    onboarding_k12_res = await db.onboardings.insert_one({
         "name": "DevOps Intern K12",
         "description": "Summer 2026 DevOps Engineering Onboarding Program covering Linux, Docker, K8s & CI/CD.",
         "start_date": "2026-06-01",
         "end_date": "2026-09-01",
         "status": OnboardingStatus.ACTIVE.value,
         "leader_ids": [l1_id, l2_id],
-        "intern_ids": intern_ids,
+        "intern_ids": intern_ids[:3],
         "created_at": now,
     })
-    batch_id = str(onboarding_res.inserted_id)
+    batch_id = str(onboarding_k12_res.inserted_id)
+
+    onboarding_k13_res = await db.onboardings.insert_one({
+        "name": "DevOps Intern K13",
+        "description": "Fall 2026 DevOps Engineering Onboarding Program covering Cloud Native, Terraform & Microservices.",
+        "start_date": "2026-09-15",
+        "end_date": "2026-12-15",
+        "status": OnboardingStatus.ACTIVE.value,
+        "leader_ids": [l1_id, l2_id],
+        "intern_ids": intern_ids[3:],
+        "created_at": now,
+    })
+    batch_k13_id = str(onboarding_k13_res.inserted_id)
 
     print("Creating sample university schedules...")
     sample_schedules = [
