@@ -268,7 +268,10 @@ function renderTopics(topics, isProcessing = false) {
   topicsMap = {};
   if (topics) {
     topics.forEach(t => {
-      topicsMap[t.id] = t;
+      const keyId = t.id || t._id;
+      if (keyId) {
+        topicsMap[String(keyId)] = t;
+      }
     });
   }
 
@@ -368,7 +371,7 @@ function renderTopics(topics, isProcessing = false) {
             <div style="display:flex; align-items:center; gap:8px;">
               ${t.completed ? '<span class="completed-badge">✓ Completed</span>' : '<span class="badge badge-draft">In Progress</span>'}
               ${isTechLead ? `
-                <button class="btn btn-sm btn-secondary" onclick="openAuditModalById('${t.id}')">
+                <button class="btn btn-sm btn-secondary" onclick="openAuditModalById('${t.id || t._id}')">
                   ${audit ? '✏️ Edit Audit' : '📝 Audit Review'}
                 </button>
               ` : ''}
@@ -598,8 +601,21 @@ async function toggleSubtopic(topicId, subtopicIndex) {
 }
 
 function openAuditModalById(topicId) {
-  const t = topicsMap[topicId];
-  if (!t) return;
+  if (!topicId) {
+    showToast('Lỗi: Không tìm thấy ID bài học!', 'error');
+    return;
+  }
+
+  let t = topicsMap[String(topicId)];
+  if (!t) {
+    t = Object.values(topicsMap).find(item => String(item.id) === String(topicId) || String(item._id) === String(topicId));
+  }
+
+  if (!t) {
+    console.error('[Audit Modal Error] Topic not found in topicsMap:', topicId, topicsMap);
+    showToast('Không tìm thấy thông tin bài học để chấm Audit!', 'error');
+    return;
+  }
 
   const audit = t.audit_review;
 
@@ -619,17 +635,17 @@ function openAuditModalById(topicId) {
   const scoreEl = document.getElementById('audit-score');
   const feedbackEl = document.getElementById('audit-feedback');
 
-  if (topicIdEl) topicIdEl.value = t.id;
+  if (topicIdEl) topicIdEl.value = t.id || t._id;
   if (onboardingIdEl) onboardingIdEl.value = currentBatchFilter || '';
   if (internIdEl) internIdEl.value = currentTargetInternId || '';
 
-  if (topicTitleEl) topicTitleEl.value = t.title;
+  if (topicTitleEl) topicTitleEl.value = t.title || '';
   if (internNameEl) internNameEl.value = targetName;
-  if (subtitleEl) subtitleEl.innerText = `Auditing: ${targetName} - Module: ${t.title}`;
+  if (subtitleEl) subtitleEl.innerText = `Auditing: ${targetName} - Module: ${t.title || ''}`;
 
-  if (statusEl) statusEl.value = audit ? audit.status : 'PASSED';
+  if (statusEl) statusEl.value = audit ? (audit.status || 'PASSED') : 'PASSED';
   if (scoreEl) scoreEl.value = (audit && audit.score !== null && audit.score !== undefined) ? audit.score : '';
-  if (feedbackEl) feedbackEl.value = audit ? audit.feedback : '';
+  if (feedbackEl) feedbackEl.value = audit ? (audit.feedback || '') : '';
 
   openModal('audit-modal');
 }
