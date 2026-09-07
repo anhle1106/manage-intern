@@ -14,8 +14,13 @@ async def list_schedules(
     user_id: Optional[str] = Query(None),
     user: dict = Depends(get_current_user),
 ):
-    target_id = user_id if user_id and user["role"] != Role.INTERN else user["id"]
-    schedules = await service.list_schedules(target_id)
+    if user_id == "ALL":
+        schedules = await service.list_schedules(user_id="ALL")
+    elif user_id:
+        target_id = user_id if user["role"] != Role.INTERN else (user_id if user_id == user["id"] else user["id"])
+        schedules = await service.list_schedules(user_id=target_id)
+    else:
+        schedules = await service.list_schedules(user_id=user["id"])
     return success_response(data=schedules)
 
 

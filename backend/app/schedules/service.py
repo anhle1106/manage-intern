@@ -21,10 +21,34 @@ def _serialize(entry: dict) -> dict:
     }
 
 
-async def list_schedules(user_id: str) -> list[dict]:
+async def list_schedules(user_id: str | None = None, user_ids: list[str] | None = None) -> list[dict]:
     db = get_db()
-    cursor = db.schedules.find({"user_id": user_id}).sort("start_date", 1)
-    return [_serialize(s) async for s in cursor]
+    query = {}
+    if user_ids:
+        query["user_id"] = {"$in": user_ids}
+    elif user_id and user_id != "ALL":
+        query["user_id"] = user_id
+
+    cursor = db.schedules.find(query).sort("start_date", 1)
+    schedules = [s async for s in cursor]
+    if not schedules:
+        return []
+
+    # Map user_id to user full_name for batch schedule response
+    u_ids = list({ObjectId(s["user_id"]) for s in schedules if ObjectId.is_valid(s.get("user_id"))})
+    user_map = {}
+    if u_ids:
+        u_cursor = db.users.find({"_id": {"$in": u_ids}})
+        async for u in u_cursor:
+            user_map[str(u["_id"])] = u.get("full_name", "Unknown User")
+
+    results = []
+    for s in schedules:
+        item = _serialize(s)
+        item["user_name"] = user_map.get(s.get("user_id"), "Unknown User")
+        results.append(item)
+
+    return results
 
 
 async def create_schedule(user_id: str, data: dict) -> dict:
@@ -49,7 +73,12 @@ async def create_schedule(user_id: str, data: dict) -> dict:
     }
     result = await db.schedules.insert_one(doc)
     doc["_id"] = result.inserted_id
-    return _serialize(doc)
+    
+    # Attach user_name to created schedule
+    res = _serialize(doc)
+    user_doc = await db.users.find_one({"_id": ObjectId(user_id)})
+    res["user_name"] = user_doc.get("full_name", "Unknown User") if user_doc else "Unknown User"
+    return res
 
 
 async def update_schedule(schedule_id: str, user_id: str, data: dict) -> dict:
@@ -67,7 +96,10 @@ async def update_schedule(schedule_id: str, user_id: str, data: dict) -> dict:
         {"$set": update_data},
         return_document=True,
     )
-    return _serialize(result)
+    res = _serialize(result)
+    user_doc = await db.users.find_one({"_id": ObjectId(user_id)})
+    res["user_name"] = user_doc.get("full_name", "Unknown User") if user_doc else "Unknown User"
+    return res
 
 
 async def delete_schedule(schedule_id: str, user_id: str) -> None:

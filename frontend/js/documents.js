@@ -65,7 +65,7 @@ async function loadDocuments() {
           <td>${d.uploader_name}</td>
           <td>
             <a href="/api/documents/${d.id}/download?token=${encodeURIComponent(token)}" target="_blank" class="btn btn-sm btn-secondary">Download</a>
-            <a href="/learning.html?onboarding_id=${d.onboarding_id || ''}" class="btn btn-sm btn-primary" style="margin-left:6px;">View Roadmap</a>
+            <a href="/learning.html?onboarding_id=${d.onboarding_id || ''}&document_id=${d.id}" class="btn btn-sm btn-primary" style="margin-left:6px;">View Roadmap</a>
             ${canDeleteThisDoc ? `<button class="btn btn-sm btn-danger" onclick="deleteDocument('${d.id}', '${d.filename}')" style="margin-left:6px;">Delete</button>` : ''}
           </td>
         </tr>

@@ -1,6 +1,20 @@
 let currentBatchFilter = '';
 let currentTargetInternId = '';
 let currentBatchInterns = [];
+let learningPollingInterval = null;
+
+function formatMarkdownText(text) {
+  if (!text) return '';
+  let formatted = String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/### (.*?)(?:\n|$)/g, '<h4 style="font-size:14px; font-weight:700; color:var(--primary); margin:12px 0 6px 0;">$1</h4>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--text-primary);">$1</strong>')
+    .replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,0.08); padding:2px 6px; border-radius:4px; font-family:monospace; color:var(--accent-purple); font-size:12px;">$1</code>')
+    .replace(/\n/g, '<br>');
+  return formatted;
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
   if (!Auth.isAuthenticated()) return;
@@ -137,6 +151,22 @@ function onInternFilterChange(internId) {
   filterRoadmapByIntern(internId);
 }
 
+function startLearningPolling(onboardingId, internId) {
+  if (learningPollingInterval) return;
+  console.log('[Learning Roadmap] AI background task active. Polling for generated topics...');
+  learningPollingInterval = setInterval(() => {
+    loadLearningProgress(onboardingId, internId);
+  }, 3000);
+}
+
+function stopLearningPolling() {
+  if (learningPollingInterval) {
+    clearInterval(learningPollingInterval);
+    learningPollingInterval = null;
+    console.log('[Learning Roadmap] Polling stopped.');
+  }
+}
+
 async function loadLearningProgress(onboardingId, internId) {
   try {
     let progressEndpoint = '/learning/progress';
@@ -152,13 +182,22 @@ async function loadLearningProgress(onboardingId, internId) {
       topicsEndpoint += queryStr;
     }
 
-    const [progressData, topicsData] = await Promise.all([
+    const [progressData, topicsData, docsData] = await Promise.all([
       ApiClient.get(progressEndpoint),
       ApiClient.get(topicsEndpoint),
+      ApiClient.get('/documents' + (onboardingId ? `?onboarding_id=${onboardingId}` : '')).catch(() => []),
     ]);
 
+    const isAnyDocProcessing = (docsData || []).some(d => d.processing_status === 'PROCESSING' || d.processing_status === 'UPLOADED');
+
     renderProgressHeader(progressData);
-    renderTopics(topicsData);
+    renderTopics(topicsData, isAnyDocProcessing);
+
+    if (isAnyDocProcessing) {
+      startLearningPolling(onboardingId, internId);
+    } else {
+      stopLearningPolling();
+    }
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -188,56 +227,110 @@ function toggleDocGroup(groupId) {
   }
 }
 
-function renderTopics(topics) {
+function renderTopics(topics, isProcessing = false) {
   const container = document.getElementById('topics-list');
   const user = Auth.getUser();
   const isTechLead = user.role === 'LEADER' || user.role === 'ADMIN';
 
   if (!topics || topics.length === 0) {
-    container.innerHTML = `
-      <div class="card-section" style="text-align:center; padding:40px 20px;">
-        <div style="font-size:36px; margin-bottom:10px;">📚</div>
-        <h3 style="font-size:16px; font-weight:700; color:var(--text-primary);">No Learning Topics Available</h3>
-        <p style="color:var(--text-muted); font-size:13px; margin-top:6px;">
-          ${user.role === 'INTERN' 
-            ? 'No training documents have been uploaded for your assigned onboarding batch yet. Please check back later!' 
-            : 'No learning topics found. Upload training documents in Document Management to generate a roadmap!'}
-        </p>
-      </div>
-    `;
+    if (isProcessing) {
+      container.innerHTML = `
+        <div class="card-section" style="text-align:center; padding:48px 24px;">
+          <div style="font-size:42px; margin-bottom:12px;">
+            <span class="spinner-pulse" style="width:24px; height:24px;"></span> 🧠
+          </div>
+          <h3 style="font-size:18px; font-weight:700; color:var(--primary); margin-bottom:6px;">
+            Gemini 3.6 Flash đang phân tích tài liệu & Khởi tạo Lộ trình học...
+          </h3>
+          <p style="color:var(--text-secondary); font-size:14px; max-width:600px; margin:0 auto;">
+            AI đang tự động bóc tách Modules, Hướng dẫn Cloud, Audit Checklist và Quiz trắc nghiệm. Giao diện sẽ tự động cập nhật Realtime khi hoàn tất!
+          </p>
+        </div>
+      `;
+    } else {
+      container.innerHTML = `
+        <div class="card-section" style="text-align:center; padding:40px 20px;">
+          <div style="font-size:36px; margin-bottom:10px;">📚</div>
+          <h3 style="font-size:16px; font-weight:700; color:var(--text-primary);">No Learning Topics Available</h3>
+          <p style="color:var(--text-muted); font-size:13px; margin-top:6px;">
+            ${user.role === 'INTERN' 
+              ? 'No training documents have been uploaded for your assigned onboarding batch yet. Please check back later!' 
+              : 'No learning topics found. Upload training documents in Document Management to generate a roadmap!'}
+          </p>
+        </div>
+      `;
+    }
     return;
   }
 
-  // Group topics by document_name
-  const docGroups = {};
+  // Check URL parameters for target document_id
+  const urlParams = new URLSearchParams(window.location.search);
+  const targetDocId = urlParams.get('document_id');
+
+  // Group topics by document_id
+  const docMap = {};
   topics.forEach(t => {
-    const docKey = t.document_name || 'Tài liệu Đào tạo';
-    if (!docGroups[docKey]) docGroups[docKey] = [];
-    docGroups[docKey].push(t);
+    const docId = t.document_id || 'general';
+    const docName = t.document_name || 'Tài liệu Đào tạo';
+    if (!docMap[docId]) {
+      docMap[docId] = {
+        docId: docId,
+        docName: docName,
+        topics: [],
+      };
+    }
+    docMap[docId].topics.push(t);
   });
+
+  const docGroupKeys = Object.keys(docMap);
+  // Priority sort: Place the target document specified in URL at the VERY TOP of the roadmap view
+  if (targetDocId && docMap[targetDocId]) {
+    docGroupKeys.sort((a, b) => (a === targetDocId ? -1 : (b === targetDocId ? 1 : 0)));
+  }
 
   const currentInternObj = currentBatchInterns.find(i => i.id === currentTargetInternId);
   const targetName = currentInternObj ? currentInternObj.full_name : 'Intern';
 
   let html = '';
 
-  Object.keys(docGroups).forEach((docName, docIdx) => {
-    const docTopics = docGroups[docName];
-    const safeDocId = `doc-group-${docIdx}`;
-    
-    // Collapsible Document Group Header Banner
+  // Render processing banner if new doc is being processed alongside existing topics
+  if (isProcessing) {
     html += `
-      <div class="card-section doc-group-card" style="background:var(--bg-secondary); border-left: 4px solid var(--primary); padding:16px 20px; margin-bottom:12px; margin-top:24px; cursor:pointer; user-select:none;" onclick="toggleDocGroup('${safeDocId}')">
+      <div class="card-section" style="background:rgba(56, 189, 248, 0.06); border:1px dashed var(--primary); padding:16px 20px; margin-bottom:20px;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span class="spinner-pulse"></span>
+          <div>
+            <strong style="color:var(--primary); font-size:14px;">🧠 Gemini 3.6 Flash đang phân tích tài liệu mới...</strong>
+            <div style="font-size:12px; color:var(--text-secondary); margin-top:2px;">Tài liệu mới đang được AI khởi tạo lộ trình. Trang sẽ tự động bổ sung Modules mới khi hoàn tất.</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  docGroupKeys.forEach((docId, docIdx) => {
+    const group = docMap[docId];
+    const isTargetDoc = targetDocId && docId === targetDocId;
+    const safeDocId = `doc-group-${docIdx}`;
+    const cardId = `doc-card-${docId}`;
+
+    const borderStyle = isTargetDoc 
+      ? 'border-left: 6px solid var(--primary); border-color: rgba(56, 189, 248, 0.5); box-shadow: 0 0 25px rgba(56, 189, 248, 0.25);' 
+      : 'border-left: 4px solid var(--primary);';
+
+    // Collapsible Document Group Header Banner with Target Document Highlight
+    html += `
+      <div id="${cardId}" class="card-section doc-group-card" style="background:var(--bg-secondary); ${borderStyle} padding:18px 22px; margin-bottom:14px; margin-top:24px; cursor:pointer; user-select:none;" onclick="toggleDocGroup('${safeDocId}')">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
           <div style="display:flex; align-items:center; gap:12px;">
-            <div style="width:38px; height:38px; border-radius:8px; background:var(--primary-alpha); display:flex; align-items:center; justify-content:center; font-size:20px;">📄</div>
+            <div style="width:40px; height:40px; border-radius:10px; background:var(--primary-alpha); display:flex; align-items:center; justify-content:center; font-size:22px;">📄</div>
             <div>
-              <h3 style="font-size:16px; font-weight:700; color:var(--text-primary); margin:0;">Nguồn tài liệu: ${docName}</h3>
-              <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">Bao gồm ${docTopics.length} Module bài học (Click để thu gọn / mở rộng)</div>
+              <h3 style="font-size:17px; font-weight:700; color:var(--text-primary); margin:0;">Nguồn tài liệu: ${group.docName}</h3>
+              <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">Bao gồm ${group.topics.length} Module bài học (Click để thu gọn / mở rộng)</div>
             </div>
           </div>
           <div style="display:flex; align-items:center; gap:12px;">
-            <span class="badge badge-active" style="padding:6px 12px; font-size:11px;">DOCUMENT SOURCE</span>
+            ${isTargetDoc ? '<span class="badge badge-active" style="padding:6px 12px; font-size:11px; background:var(--primary); color:#000;">🎯 TARGET DOCUMENT</span>' : '<span class="badge badge-active" style="padding:6px 12px; font-size:11px;">DOCUMENT SOURCE</span>'}
             <svg id="chevron-${safeDocId}" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" class="submenu-chevron open" style="transition:transform 0.2s ease;"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
         </div>
@@ -248,7 +341,7 @@ function renderTopics(topics) {
     `;
 
     // Render topics for this document
-    html += docTopics.map(t => {
+    html += group.topics.map(t => {
       const audit = t.audit_review;
       const completedSubtopics = t.completed_subtopics || [];
 
@@ -278,16 +371,41 @@ function renderTopics(topics) {
           
           <p style="color:var(--text-secondary); font-size:14px; margin-bottom:14px; margin-left:34px;">${t.summary}</p>
 
-          ${t.key_concepts && t.key_concepts.length > 0 ? `
+          <!-- Cloud & Architecture Application Guide Box -->
+          <div style="background:linear-gradient(135deg, rgba(56, 189, 248, 0.08), rgba(99, 102, 241, 0.08)); border:1px solid rgba(56, 189, 248, 0.25); border-radius:var(--radius-md); padding:12px 16px; margin-bottom:16px; margin-left:34px;">
+            <div style="font-size:11px; font-weight:700; color:var(--primary); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
+              <span>☁️ Ứng dụng Cloud & Mô hình Hạ tầng (Cloud & Architecture Application):</span>
+            </div>
+            <div style="font-size:13px; color:var(--text-primary); font-weight:500;">
+              ${t.cloud_application || 'Tích hợp ứng dụng triển khai dịch vụ Cloud (AWS/GCP/Docker/K8s) & Mô hình hạ tầng doanh nghiệp.'}
+            </div>
+          </div>
+
+          <!-- Concept Explanations Breakdown -->
+          ${t.concept_explanations && t.concept_explanations.length > 0 ? `
+            <div style="margin-bottom:16px; margin-left:34px;">
+              <strong style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px;">📖 Hướng dẫn & Giải thích Khái niệm Chìa khóa:</strong>
+              <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:10px; margin-top:8px;">
+                ${t.concept_explanations.map(ce => `
+                  <div style="background:rgba(255,255,255,0.03); border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:10px 14px;">
+                    <div style="font-size:13px; font-weight:700; color:var(--primary); display:flex; align-items:center; gap:6px;">
+                      <span>🔑</span> <span>${ce.term}</span>
+                    </div>
+                    <div style="font-size:12px; color:var(--text-secondary); margin-top:4px; line-height:1.4;">${ce.definition}</div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : (t.key_concepts && t.key_concepts.length > 0 ? `
             <div style="margin-bottom:14px; margin-left:34px;">
               <strong style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px;">Key Concepts:</strong><br>
               ${t.key_concepts.map(k => `<span class="concept-tag">${k}</span>`).join('')}
             </div>
-          ` : ''}
+          ` : '')}
 
           ${t.subtopics && t.subtopics.length > 0 ? `
             <div class="subtopics-container" style="margin-left:34px;">
-              <strong style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px;">Subtopics Checklist:</strong>
+              <strong style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px;">Subtopics Checklist & Practical Guides:</strong>
               ${t.subtopics.map((st, idx) => {
                 const isSubtopicDone = t.completed || completedSubtopics.includes(idx);
                 return `
@@ -300,6 +418,43 @@ function renderTopics(topics) {
                     <div style="flex:1;">
                       <div class="subtopic-title">${st.title}</div>
                       <div style="font-size:12px; color:var(--text-secondary); margin-top:2px;">${st.summary}</div>
+
+                      <!-- Subtopic Practical Study Guide -->
+                      ${st.practical_guide ? `
+                        <div style="margin-top:8px; padding:8px 12px; background:rgba(16, 185, 129, 0.05); border:1px solid rgba(16, 185, 129, 0.2); border-radius:var(--radius-sm); font-size:12px; color:var(--accent-emerald);">
+                          <strong>💡 Hướng dẫn & Lưu ý Thực hành:</strong> ${st.practical_guide}
+                        </div>
+                      ` : ''}
+
+                      <!-- Leader's Deep Lecture Content -->
+                      ${st.lecture_content ? `
+                        <div style="margin-top:10px; padding:14px 16px; background:rgba(30, 41, 59, 0.6); border:1px solid rgba(56, 189, 248, 0.3); border-radius:var(--radius-md); font-size:13px; color:var(--text-secondary); line-height:1.6;">
+                          <div style="font-size:12px; font-weight:700; color:var(--primary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                            <span>📖 Bài giảng Kỹ thuật Chuyên sâu từ Senior Leader:</span>
+                          </div>
+                          <div>${formatMarkdownText(st.lecture_content)}</div>
+                        </div>
+                      ` : ''}
+
+                      <!-- Senior Production Gotchas & Pitfalls -->
+                      ${st.production_gotchas ? `
+                        <div style="margin-top:10px; padding:12px 14px; background:rgba(245, 158, 11, 0.06); border:1px solid rgba(245, 158, 11, 0.3); border-radius:var(--radius-md); font-size:12px; color:#fbbf24; line-height:1.5;">
+                          <div style="font-size:11px; font-weight:700; color:#f59e0b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+                            <span>⚠️ Kinh nghiệm Thực chiến & Bẫy Production (Senior Gotchas):</span>
+                          </div>
+                          <div>${formatMarkdownText(st.production_gotchas)}</div>
+                        </div>
+                      ` : ''}
+
+                      <!-- Hands-on Lab & Step-by-Step Exercise -->
+                      ${st.lab_exercise ? `
+                        <div style="margin-top:10px; padding:12px 14px; background:rgba(124, 77, 255, 0.06); border:1px solid rgba(124, 77, 255, 0.3); border-radius:var(--radius-md); font-size:12px; color:var(--text-primary); line-height:1.5;">
+                          <div style="font-size:11px; font-weight:700; color:var(--accent-purple); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+                            <span>🛠️ Kịch bản Thực hành Lab & Lệnh Thực thi (Hands-on Lab):</span>
+                          </div>
+                          <div style="font-family:monospace; background:rgba(0,0,0,0.3); padding:10px; border-radius:6px; font-size:12px; white-space:pre-wrap;">${formatMarkdownText(st.lab_exercise)}</div>
+                        </div>
+                      ` : ''}
 
                       <!-- TechLead Audit Question Hints (Only visible to TechLead / Admin) -->
                       ${isTechLead && st.audit_checklist && st.audit_checklist.length > 0 ? `
@@ -371,6 +526,37 @@ function renderTopics(topics) {
   });
 
   container.innerHTML = html;
+
+  // Auto smooth scroll to target document if specified in URL
+  if (targetDocId) {
+    setTimeout(() => {
+      const targetCardEl = document.getElementById(`doc-card-${targetDocId}`);
+      if (targetCardEl) {
+        targetCardEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 250);
+  }
+}
+
+function checkQuizAnswer(radioEl, correctAnswer, explanation, feedbackId) {
+  const selectedVal = radioEl.value;
+  const feedbackEl = document.getElementById(feedbackId);
+  if (!feedbackEl) return;
+
+  const isCorrect = selectedVal.toUpperCase() === correctAnswer.trim().charAt(0).toUpperCase();
+
+  feedbackEl.style.display = 'block';
+  if (isCorrect) {
+    feedbackEl.style.background = 'rgba(16, 185, 129, 0.1)';
+    feedbackEl.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+    feedbackEl.style.color = 'var(--accent-emerald)';
+    feedbackEl.innerHTML = `<strong>✓ CHÍNH XÁC!</strong> ${explanation}`;
+  } else {
+    feedbackEl.style.background = 'rgba(244, 63, 94, 0.1)';
+    feedbackEl.style.border = '1px solid rgba(244, 63, 94, 0.3)';
+    feedbackEl.style.color = 'var(--accent-rose)';
+    feedbackEl.innerHTML = `<strong>✕ CHƯA ĐÚNG!</strong> Đáp án đúng là <strong>${correctAnswer}</strong>.<br><span style="color:var(--text-secondary);">${explanation}</span>`;
+  }
 }
 
 async function toggleTopic(topicId, currentStatus) {
@@ -405,65 +591,43 @@ async function toggleSubtopic(topicId, subtopicIndex) {
   }
 }
 
-function openAuditModal(topicId, topicTitle, internName, status, score, feedback) {
+function openAuditModal(topicId, topicTitle, targetName, currentStatus, currentScore, currentFeedback) {
   document.getElementById('audit-topic-id').value = topicId;
-  document.getElementById('audit-modal-subtitle').innerText = `Auditing: "${topicTitle}" for ${internName}`;
-  document.getElementById('audit-status').value = status || 'PASSED';
-  document.getElementById('audit-score').value = score || '';
-  document.getElementById('audit-feedback').value = feedback || '';
+  document.getElementById('audit-onboarding-id').value = currentBatchFilter;
+  document.getElementById('audit-intern-id').value = currentTargetInternId;
 
-  document.getElementById('audit-modal').style.display = 'flex';
-}
+  document.getElementById('audit-modal-subtitle').innerText = `Auditing: ${targetName} - Module: ${topicTitle}`;
+  document.getElementById('audit-status').value = currentStatus || 'PASSED';
+  document.getElementById('audit-score').value = currentScore || '';
+  document.getElementById('audit-feedback').value = currentFeedback || '';
 
-function closeAuditModal() {
-  document.getElementById('audit-modal').style.display = 'none';
+  openModal('audit-modal');
 }
 
 async function handleSaveAuditReview(e) {
   e.preventDefault();
-
   const topicId = document.getElementById('audit-topic-id').value;
+  const onboardingId = document.getElementById('audit-onboarding-id').value;
+  const internId = document.getElementById('audit-intern-id').value;
   const status = document.getElementById('audit-status').value;
   const scoreVal = document.getElementById('audit-score').value;
   const feedback = document.getElementById('audit-feedback').value;
 
-  const score = scoreVal !== '' ? parseInt(scoreVal, 10) : null;
+  const data = {
+    onboarding_id: onboardingId,
+    intern_id: internId,
+    topic_id: topicId,
+    status: status,
+    score: scoreVal ? parseInt(scoreVal) : null,
+    feedback: feedback,
+  };
 
   try {
-    await ApiClient.post('/learning/audits', {
-      topic_id: topicId,
-      status: status,
-      score: score,
-      feedback: feedback,
-    });
-
-    showToast('Audit review saved successfully!');
-    closeAuditModal();
+    await ApiClient.post('/learning/audits', data);
+    showToast('Audit review saved successfully');
+    closeModal('audit-modal');
     loadLearningProgress(currentBatchFilter, currentTargetInternId);
   } catch (err) {
     showToast(err.message, 'error');
   }
 }
-
-function checkQuizAnswer(radio, correctAnswer, explanation, feedbackId) {
-  const feedbackEl = document.getElementById(feedbackId);
-  if (!feedbackEl) return;
-
-  const selected = radio.value;
-  const cleanCorrect = (correctAnswer || '').trim().toUpperCase();
-  const isCorrect = cleanCorrect.startsWith(selected.toUpperCase()) || selected.toUpperCase() === cleanCorrect;
-
-  feedbackEl.style.display = 'block';
-  if (isCorrect) {
-    feedbackEl.style.backgroundColor = 'rgba(16, 185, 129, 0.12)';
-    feedbackEl.style.color = 'var(--accent-emerald)';
-    feedbackEl.style.border = '1px solid rgba(16, 185, 129, 0.3)';
-    feedbackEl.innerHTML = `<strong>✅ Chính xác! (Đáp án ${correctAnswer}):</strong> ${explanation}`;
-  } else {
-    feedbackEl.style.backgroundColor = 'rgba(244, 63, 94, 0.12)';
-    feedbackEl.style.color = 'var(--accent-rose)';
-    feedbackEl.style.border = '1px solid rgba(244, 63, 94, 0.3)';
-    feedbackEl.innerHTML = `<strong>❌ Chưa đúng!</strong> Vui lòng chọn lại. <em>(Gợi ý: ${explanation})</em>`;
-  }
-}
-

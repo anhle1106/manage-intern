@@ -44,10 +44,11 @@ async function renderSidebar() {
       <div class="brand-icon">D</div>
       <div>
         <div class="brand-title">DevOps Portal</div>
+        <div style="font-size:10px; color:var(--primary); font-weight:700; letter-spacing:0.8px; text-transform:uppercase; margin-top:2px;">Intern Platform</div>
       </div>
     </div>
     <nav class="sidebar-nav">
-      <div class="nav-label">Navigation</div>
+      <div class="nav-label">Main Navigation</div>
       ${filteredNav.map(item => {
         if (item.label === 'Onboarding') {
           const isOnboardingActive = activePath.endsWith('onboarding.html');

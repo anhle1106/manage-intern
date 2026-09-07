@@ -14,7 +14,7 @@
       <div class="page-header">
         <div>
           <h1 class="page-title">Leave Requests</h1>
-          <p class="page-subtitle">Submit, review, and track leave requests</p>
+          <p class="page-subtitle">Submit, review, and track leave requests transparently</p>
         </div>
         <div id="leave-actions">
           <button class="btn btn-primary" onclick="openModal('create-leave-modal')">+ Create Leave Request</button>
@@ -32,7 +32,7 @@
                 <th>End Time</th>
                 <th>Reason</th>
                 <th>Status</th>
-                <th>Actions</th>
+                <th>Người phê duyệt</th>
               </tr>
             </thead>
             <tbody id="leave-table-body">
@@ -75,7 +75,7 @@
           <label class="form-label">Reason</label>
           <textarea id="leave-reason" class="form-control" rows="3" placeholder="Provide a detailed reason for leave..." required></textarea>
         </div>
-        <div class="form-group" style="background:var(--bg-elevated, #f8fafc); padding:10px; border-radius:6px; border:1px solid var(--border-color);">
+        <div class="form-group" style="background:rgba(255,255,255,0.03); padding:12px; border-radius:var(--radius-md); border:1px solid var(--border-color);">
           <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; font-weight:600; color:var(--primary);">
             <input type="checkbox" id="leave-create-schedule" checked>
             <span>Tự động tạo & Thêm môn học vào Lịch học (University Schedule)</span>

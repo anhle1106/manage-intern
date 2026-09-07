@@ -9,19 +9,27 @@ async def _serialize_list(requests: list[dict]) -> list[dict]:
     if not requests:
         return []
     db = get_db()
+    
+    # Collect all user IDs: both request applicants and reviewers
     user_ids = [ObjectId(r["user_id"]) for r in requests if ObjectId.is_valid(r.get("user_id"))]
+    reviewer_ids = [ObjectId(r["reviewed_by"]) for r in requests if r.get("reviewed_by") and ObjectId.is_valid(r.get("reviewed_by"))]
+    all_user_ids = list(set(user_ids + reviewer_ids))
+    
     user_map = {}
-    if user_ids:
-        cursor = db.users.find({"_id": {"$in": user_ids}})
+    if all_user_ids:
+        cursor = db.users.find({"_id": {"$in": all_user_ids}})
         async for u in cursor:
-            user_map[str(u["_id"])] = u.get("full_name", "Unknown")
+            user_map[str(u["_id"])] = u.get("full_name", "Unknown User")
 
     results = []
     for req in requests:
+        reviewer_id = req.get("reviewed_by")
+        reviewer_name = user_map.get(reviewer_id) if reviewer_id else None
+
         results.append({
             "id": str(req["_id"]),
             "user_id": req["user_id"],
-            "user_name": user_map.get(req["user_id"], "Unknown"),
+            "user_name": user_map.get(req["user_id"], "Unknown User"),
             "leave_type": req["leave_type"],
             "start_datetime": req["start_datetime"],
             "end_datetime": req["end_datetime"],
@@ -29,7 +37,8 @@ async def _serialize_list(requests: list[dict]) -> list[dict]:
             "attachment_url": req.get("attachment_url"),
             "status": req["status"],
             "created_schedule_id": req.get("created_schedule_id"),
-            "reviewed_by": req.get("reviewed_by"),
+            "reviewed_by": reviewer_id,
+            "reviewed_by_name": reviewer_name,
             "reviewed_at": req["reviewed_at"].isoformat() if req.get("reviewed_at") else None,
             "created_at": req["created_at"].isoformat() if req.get("created_at") else "",
         })

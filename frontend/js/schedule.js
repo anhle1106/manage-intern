@@ -1,19 +1,34 @@
 let calendar = null;
 let currentUserId = null;
 
+const USER_COLORS = [
+  { bg: '#38bdf8', border: '#0284c7' }, // Sky / Cyan
+  { bg: '#10b981', border: '#059669' }, // Emerald
+  { bg: '#a855f7', border: '#7e22ce' }, // Purple
+  { bg: '#f59e0b', border: '#d97706' }, // Amber
+  { bg: '#f43f5e', border: '#e11d48' }, // Rose
+  { bg: '#6366f1', border: '#4338ca' }, // Indigo
+  { bg: '#ec4899', border: '#be185d' }, // Pink
+  { bg: '#14b8a6', border: '#0f766e' }, // Teal
+];
+
+function getUserColor(userId) {
+  if (!userId) return USER_COLORS[0];
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    hash = userId.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % USER_COLORS.length;
+  return USER_COLORS[index];
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   if (!Auth.isAuthenticated()) return;
   const user = Auth.getUser();
   currentUserId = user.id;
 
   initCalendar();
-
-  if (user.role === 'ADMIN' || user.role === 'LEADER') {
-    document.getElementById('intern-selector-container').style.display = 'block';
-    await loadInternsList();
-  } else {
-    loadSchedules(currentUserId);
-  }
+  await loadInternsList();
 
   document.getElementById('add-schedule-form').addEventListener('submit', handleAddSchedule);
 
@@ -46,7 +61,7 @@ function toggleScheduleTypeUI(type) {
 function initCalendar() {
   const calendarEl = document.getElementById('calendar-container');
   calendar = new FullCalendar.Calendar(calendarEl, {
-    initialView: 'timeGridWeek',
+    initialView: 'dayGridMonth',
     headerToolbar: {
       left: 'prev,next today',
       center: 'title',
@@ -59,8 +74,14 @@ function initCalendar() {
     allDaySlot: false,
     events: [],
     eventClick: function(info) {
-      if (confirm(`Xóa lịch bận "${info.event.title}"?`)) {
-        deleteSchedule(info.event.id);
+      const user = Auth.getUser();
+      const eventUserId = info.event.extendedProps.userId;
+      if (user.role === 'ADMIN' || eventUserId === user.id) {
+        if (confirm(`Xóa lịch bận "${info.event.title}"?`)) {
+          deleteSchedule(info.event.id);
+        }
+      } else {
+        alert(`Lịch bận: ${info.event.title}\nKhung giờ: ${info.event.extendedProps.timeRange}`);
       }
     }
   });
@@ -68,36 +89,76 @@ function initCalendar() {
 }
 
 async function loadInternsList() {
+  const user = Auth.getUser();
+  const select = document.getElementById('intern-select');
+  if (!select) return;
+
+  let html = `<option value="ALL">🌐 Tất cả thực tập sinh (Xem toàn bộ lịch)</option>`;
+  html += `<option value="${user.id}">👤 Cá nhân tôi (${user.full_name})</option>`;
+
   try {
     const interns = await ApiClient.get('/interns');
-    const select = document.getElementById('intern-select');
-    select.innerHTML = interns.map(i => `<option value="${i.user_id}">${i.full_name} (${i.university || 'No Uni'})</option>`).join('');
-
-    if (interns.length > 0) {
-      select.value = interns[0].user_id;
-      loadSchedules(interns[0].user_id);
-    }
+    interns.forEach(i => {
+      if (i.user_id !== user.id) {
+        html += `<option value="${i.user_id}">👤 ${i.full_name} (${i.university || 'Thực tập sinh'})</option>`;
+      }
+    });
   } catch (err) {
-    showToast(err.message, 'error');
+    console.warn('Could not fetch interns list for filter:', err);
   }
+
+  select.innerHTML = html;
+  select.value = 'ALL';
+  loadSchedules('ALL');
 }
 
 async function loadInternSchedule(userId) {
   if (!userId) return;
-  currentUserId = userId;
   loadSchedules(userId);
 }
 
 async function loadSchedules(userId) {
   try {
-    const schedules = await ApiClient.get(`/schedules?user_id=${userId}`);
+    const endpoint = (userId === 'ALL') ? '/schedules?user_id=ALL' : `/schedules?user_id=${userId}`;
+    const schedules = await ApiClient.get(endpoint);
     const events = convertSchedulesToEvents(schedules);
+    
     calendar.removeAllEvents();
     calendar.addEventSource(events);
+    
+    renderLegend(schedules);
     renderScheduleTable(schedules);
   } catch (err) {
     showToast(err.message, 'error');
   }
+}
+
+function renderLegend(schedules) {
+  const legendEl = document.getElementById('schedule-filter-legend');
+  if (!legendEl) return;
+
+  const userMap = {};
+  schedules.forEach(s => {
+    if (s.user_id && s.user_name) {
+      userMap[s.user_id] = s.user_name;
+    }
+  });
+
+  const userIds = Object.keys(userMap);
+  if (userIds.length === 0) {
+    legendEl.innerHTML = '';
+    return;
+  }
+
+  legendEl.innerHTML = userIds.map(uid => {
+    const color = getUserColor(uid);
+    return `
+      <div style="display:flex; align-items:center; gap:6px;">
+        <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background-color:${color.bg}; border:1px solid ${color.border};"></span>
+        <span style="font-weight:600; color:var(--text-secondary);">${userMap[uid]}</span>
+      </div>
+    `;
+  }).join('');
 }
 
 function renderScheduleTable(schedules) {
@@ -105,10 +166,9 @@ function renderScheduleTable(schedules) {
   if (!tbody) return;
 
   const currentUser = Auth.getUser();
-  const canDelete = currentUser.role === 'INTERN' || currentUser.role === 'ADMIN';
 
   if (!schedules || schedules.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">Chưa có lịch bận nào. Hãy bấm "+ Add Schedule" để thêm lịch!</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">Chưa có lịch bận nào. Hãy bấm "+ Add Schedule" để thêm lịch!</td></tr>';
     return;
   }
 
@@ -124,14 +184,23 @@ function renderScheduleTable(schedules) {
       dowText = `${dowsStr} (${s.start_date} ~ ${s.end_date})`;
     }
 
+    const canDelete = (currentUser.role === 'ADMIN' || s.user_id === currentUser.id);
+    const color = getUserColor(s.user_id);
+
     return `
       <tr>
+        <td>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background-color:${color.bg};"></span>
+            <strong>${s.user_name || 'N/A'}</strong>
+          </div>
+        </td>
         <td><strong>${s.subject}</strong></td>
         <td>${typeBadge}</td>
         <td>${dowText}</td>
         <td><strong style="color:var(--primary);">${s.start_time} - ${s.end_time}</strong></td>
         <td>
-          ${canDelete ? `<button class="btn btn-sm btn-danger" onclick="deleteSchedule('${s.id}')">🗑 Xóa Lịch</button>` : '-'}
+          ${canDelete ? `<button class="btn btn-sm btn-danger" onclick="deleteSchedule('${s.id}')">🗑 Xóa</button>` : '-'}
         </td>
       </tr>
     `;
@@ -161,12 +230,10 @@ function convertSchedulesToEvents(schedules) {
     const activeDaysOfWeek = new Set();
 
     if (s.is_recurring && s.days_of_week && s.days_of_week.length > 0) {
-      // Weekly recurring on specified days (e.g. Mon-Fri)
       s.days_of_week.forEach(d => {
         activeDaysOfWeek.add(daysMap[d]);
       });
     } else {
-      // One-time specific date range schedule: active on ALL dates in range [start_date, end_date]
       try {
         const pStart = s.start_date.split('-');
         const pEnd = s.end_date.split('-');
@@ -186,17 +253,26 @@ function convertSchedulesToEvents(schedules) {
     }
 
     const daysList = activeDaysOfWeek.size > 0 ? Array.from(activeDaysOfWeek) : [daysMap[s.day_of_week || 0]];
+    const color = getUserColor(s.user_id);
+    const userName = s.user_name || 'Intern';
 
     events.push({
       id: s.id,
-      title: s.subject,
+      title: `${userName}: ${s.subject}`,
       daysOfWeek: daysList,
       startTime: s.start_time,
       endTime: s.end_time,
       startRecur: s.start_date,
       endRecur: endRecurInclusive,
-      backgroundColor: s.is_recurring ? '#38bdf8' : '#f43f5e',
-      borderColor: s.is_recurring ? '#0284c7' : '#e11d48',
+      backgroundColor: color.bg,
+      borderColor: color.border,
+      textColor: '#ffffff',
+      extendedProps: {
+        userId: s.user_id,
+        userName: userName,
+        subject: s.subject,
+        timeRange: `${s.start_time} - ${s.end_time}`,
+      }
     });
   });
 
@@ -250,7 +326,10 @@ async function handleAddSchedule(e) {
     closeModal('add-schedule-modal');
     document.getElementById('add-schedule-form').reset();
     document.getElementById('recurring-days-group').style.display = 'none';
-    loadSchedules(Auth.getUser().id);
+    
+    const select = document.getElementById('intern-select');
+    const activeVal = select ? select.value : 'ALL';
+    loadSchedules(activeVal);
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -260,7 +339,9 @@ async function deleteSchedule(id) {
   try {
     await ApiClient.delete(`/schedules/${id}`);
     showToast('Lịch bận đã được xóa thành công!');
-    loadSchedules(currentUserId);
+    const select = document.getElementById('intern-select');
+    const activeVal = select ? select.value : 'ALL';
+    loadSchedules(activeVal);
   } catch (err) {
     showToast(err.message, 'error');
   }

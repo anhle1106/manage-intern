@@ -4,6 +4,7 @@ from app.users import service
 from app.users.schemas import UserCreate, UserUpdate
 from app.common.dependencies import require_roles, get_current_user
 from app.common.enums import Role
+from app.common.exceptions import ForbiddenError
 from app.common.response import success_response
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
@@ -40,8 +41,14 @@ async def get_user(
 async def update_user(
     user_id: str,
     body: UserUpdate,
-    _: dict = Depends(require_roles(Role.ADMIN)),
+    current_user: dict = Depends(require_roles(Role.ADMIN)),
 ):
+    if current_user["id"] == user_id:
+        if body.is_active is False:
+            raise ForbiddenError("Admin cannot deactivate their own account")
+        if body.role is not None and body.role != Role.ADMIN:
+            raise ForbiddenError("Admin cannot demote their own admin role")
+
     user = await service.update_user(user_id, body.model_dump(exclude_unset=True))
     return success_response(data=user, message="User updated")
 
@@ -49,7 +56,10 @@ async def update_user(
 @router.delete("/{user_id}")
 async def delete_user(
     user_id: str,
-    _: dict = Depends(require_roles(Role.ADMIN)),
+    current_user: dict = Depends(require_roles(Role.ADMIN)),
 ):
+    if current_user["id"] == user_id:
+        raise ForbiddenError("Admin cannot deactivate or delete their own account")
+
     await service.delete_user(user_id)
     return success_response(message="User deleted")

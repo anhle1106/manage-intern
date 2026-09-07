@@ -13,21 +13,21 @@
         <div class="brand-icon">D</div>
         <div class="brand-title">DevOps Portal</div>
       </div>
-      <p class="page-subtitle">Internal DevOps Intern Management Platform</p>
+      <p class="page-subtitle">DevOps Intern Management & AI Platform</p>
     </div>
 
     <form id="login-form">
       <div class="form-group">
         <label class="form-label" for="email">Email Address</label>
-        <input type="email" id="email" class="form-control" placeholder="user@devops.com" required>
+        <input type="email" id="email" class="form-control" placeholder="user@devops.com" required autocomplete="email">
       </div>
 
       <div class="form-group">
         <label class="form-label" for="password">Password</label>
-        <input type="password" id="password" class="form-control" placeholder="••••••••" required>
+        <input type="password" id="password" class="form-control" placeholder="••••••••" required autocomplete="current-password">
       </div>
 
-      <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 12px;">Sign In</button>
+      <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 14px; padding: 12px;">Sign In</button>
     </form>
   </div>
 
@@ -38,9 +38,16 @@
       e.preventDefault();
       const email = document.getElementById('email').value;
       const password = document.getElementById('password').value;
+      const submitBtn = e.target.querySelector('button[type="submit"]');
+      const originalText = submitBtn.innerHTML;
+      submitBtn.innerHTML = '<span class="spinner"></span> Signing in...';
+      submitBtn.disabled = true;
+
       try {
         await Auth.login(email, password);
       } catch (err) {
+        submitBtn.innerHTML = originalText;
+        submitBtn.disabled = false;
         alert(err.message || 'Login failed');
       }
     });

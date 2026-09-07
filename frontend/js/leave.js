@@ -15,7 +15,6 @@ async function loadLeaveRequests() {
   try {
     const requests = await ApiClient.get('/leave-requests');
     const tbody = document.getElementById('leave-table-body');
-    const user = Auth.getUser();
 
     if (requests.length === 0) {
       tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No leave requests found.</td></tr>';
@@ -23,18 +22,23 @@ async function loadLeaveRequests() {
     }
 
     tbody.innerHTML = requests.map(req => {
-      const isPending = req.status === 'PENDING';
-      const isReviewer = user.role === 'ADMIN' || user.role === 'LEADER';
-      const isOwner = user.role === 'INTERN' && req.user_id === user.id;
-
-      let actionsHtml = '-';
-      if (isReviewer && isPending) {
-        actionsHtml = `
-          <button class="btn btn-sm btn-success" onclick="approveLeave('${req.id}')">Approve</button>
-          <button class="btn btn-sm btn-danger" onclick="rejectLeave('${req.id}')">Reject</button>
-        `;
-      } else if (isOwner && isPending) {
-        actionsHtml = `<button class="btn btn-sm btn-secondary" onclick="cancelLeave('${req.id}')">Cancel</button>`;
+      let reviewerDisplay = '<span style="color:var(--text-muted); font-size:13px;">-</span>';
+      if (req.reviewed_by_name) {
+        if (req.status === 'APPROVED') {
+          reviewerDisplay = `<div style="display:flex; align-items:center; gap:6px; color:var(--accent-emerald); font-weight:600; font-size:13px;">
+            <span>✔</span> <span>${req.reviewed_by_name}</span>
+          </div>`;
+        } else if (req.status === 'REJECTED') {
+          reviewerDisplay = `<div style="display:flex; align-items:center; gap:6px; color:var(--accent-rose); font-weight:600; font-size:13px;">
+            <span>✖</span> <span>${req.reviewed_by_name}</span>
+          </div>`;
+        } else {
+          reviewerDisplay = `<span style="font-weight:600;">${req.reviewed_by_name}</span>`;
+        }
+      } else if (req.status === 'PENDING') {
+        reviewerDisplay = `<span class="badge badge-pending">⏳ Chờ duyệt</span>`;
+      } else if (req.status === 'CANCELLED') {
+        reviewerDisplay = `<span style="color:var(--text-muted); font-size:12px;">Đã hủy bởi Intern</span>`;
       }
 
       return `
@@ -42,13 +46,13 @@ async function loadLeaveRequests() {
           <td><strong>${req.user_name}</strong></td>
           <td>
             ${req.leave_type}
-            ${req.created_schedule_id ? '<br><span style="font-size:11px; color:var(--primary);">📅 Auto Schedule Created</span>' : ''}
+            ${req.created_schedule_id ? '<br><span style="font-size:11px; color:var(--primary); font-weight:600;">📅 Auto Schedule Created</span>' : ''}
           </td>
           <td>${formatDate(req.start_datetime)}</td>
           <td>${formatDate(req.end_datetime)}</td>
           <td>${req.reason}</td>
           <td><span class="badge badge-${req.status.toLowerCase()}">${req.status}</span></td>
-          <td>${actionsHtml}</td>
+          <td>${reviewerDisplay}</td>
         </tr>
       `;
     }).join('');
