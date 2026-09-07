@@ -255,11 +255,16 @@
   <div id="audit-modal" class="modal-backdrop">
     <div class="modal">
       <div class="modal-header">
-        <h3 class="modal-title" id="audit-modal-title">📝 TechLead Module Audit Review</h3>
+        <div>
+          <h3 class="modal-title" id="audit-modal-title">📝 TechLead Module Audit Review</h3>
+          <div id="audit-modal-subtitle" style="font-size:12px; color:var(--text-muted); margin-top:2px;"></div>
+        </div>
         <button class="modal-close" onclick="closeModal('audit-modal')">&times;</button>
       </div>
       <form id="audit-review-form">
         <input type="hidden" id="audit-topic-id">
+        <input type="hidden" id="audit-onboarding-id">
+        <input type="hidden" id="audit-intern-id">
         
         <div class="form-group">
           <label class="form-label">Module / Topic</label>

@@ -2,6 +2,7 @@ let currentBatchFilter = '';
 let currentTargetInternId = '';
 let currentBatchInterns = [];
 let learningPollingInterval = null;
+let topicsMap = {};
 
 function formatMarkdownText(text) {
   if (!text) return '';
@@ -263,6 +264,14 @@ function renderTopics(topics, isProcessing = false) {
     return;
   }
 
+  // Store topics in topicsMap for safe audit modal opening without inline string escaping issues
+  topicsMap = {};
+  if (topics) {
+    topics.forEach(t => {
+      topicsMap[t.id] = t;
+    });
+  }
+
   // Check URL parameters for target document_id
   const urlParams = new URLSearchParams(window.location.search);
   const targetDocId = urlParams.get('document_id');
@@ -287,9 +296,6 @@ function renderTopics(topics, isProcessing = false) {
   if (targetDocId && docMap[targetDocId]) {
     docGroupKeys.sort((a, b) => (a === targetDocId ? -1 : (b === targetDocId ? 1 : 0)));
   }
-
-  const currentInternObj = currentBatchInterns.find(i => i.id === currentTargetInternId);
-  const targetName = currentInternObj ? currentInternObj.full_name : 'Intern';
 
   let html = '';
 
@@ -362,7 +368,7 @@ function renderTopics(topics, isProcessing = false) {
             <div style="display:flex; align-items:center; gap:8px;">
               ${t.completed ? '<span class="completed-badge">✓ Completed</span>' : '<span class="badge badge-draft">In Progress</span>'}
               ${isTechLead ? `
-                <button class="btn btn-sm btn-secondary" onclick="openAuditModal('${t.id}', '${t.title.replace(/'/g, "\\'")}', '${targetName.replace(/'/g, "\\'")}', '${audit ? audit.status : 'PASSED'}', '${audit && audit.score !== null ? audit.score : ''}', '${audit ? audit.feedback.replace(/'/g, "\\'").replace(/\n/g, "\\n") : ''}')">
+                <button class="btn btn-sm btn-secondary" onclick="openAuditModalById('${t.id}')">
                   ${audit ? '✏️ Edit Audit' : '📝 Audit Review'}
                 </button>
               ` : ''}
@@ -591,15 +597,39 @@ async function toggleSubtopic(topicId, subtopicIndex) {
   }
 }
 
-function openAuditModal(topicId, topicTitle, targetName, currentStatus, currentScore, currentFeedback) {
-  document.getElementById('audit-topic-id').value = topicId;
-  document.getElementById('audit-onboarding-id').value = currentBatchFilter;
-  document.getElementById('audit-intern-id').value = currentTargetInternId;
+function openAuditModalById(topicId) {
+  const t = topicsMap[topicId];
+  if (!t) return;
 
-  document.getElementById('audit-modal-subtitle').innerText = `Auditing: ${targetName} - Module: ${topicTitle}`;
-  document.getElementById('audit-status').value = currentStatus || 'PASSED';
-  document.getElementById('audit-score').value = currentScore || '';
-  document.getElementById('audit-feedback').value = currentFeedback || '';
+  const audit = t.audit_review;
+
+  let targetName = 'Intern';
+  if (currentTargetInternId && currentBatchInterns) {
+    const foundIntern = currentBatchInterns.find(i => (i.user_id === currentTargetInternId || i.id === currentTargetInternId));
+    if (foundIntern) targetName = foundIntern.full_name;
+  }
+
+  const topicIdEl = document.getElementById('audit-topic-id');
+  const onboardingIdEl = document.getElementById('audit-onboarding-id');
+  const internIdEl = document.getElementById('audit-intern-id');
+  const topicTitleEl = document.getElementById('audit-topic-title');
+  const internNameEl = document.getElementById('audit-intern-name');
+  const subtitleEl = document.getElementById('audit-modal-subtitle');
+  const statusEl = document.getElementById('audit-status');
+  const scoreEl = document.getElementById('audit-score');
+  const feedbackEl = document.getElementById('audit-feedback');
+
+  if (topicIdEl) topicIdEl.value = t.id;
+  if (onboardingIdEl) onboardingIdEl.value = currentBatchFilter || '';
+  if (internIdEl) internIdEl.value = currentTargetInternId || '';
+
+  if (topicTitleEl) topicTitleEl.value = t.title;
+  if (internNameEl) internNameEl.value = targetName;
+  if (subtitleEl) subtitleEl.innerText = `Auditing: ${targetName} - Module: ${t.title}`;
+
+  if (statusEl) statusEl.value = audit ? audit.status : 'PASSED';
+  if (scoreEl) scoreEl.value = (audit && audit.score !== null && audit.score !== undefined) ? audit.score : '';
+  if (feedbackEl) feedbackEl.value = audit ? audit.feedback : '';
 
   openModal('audit-modal');
 }
@@ -608,17 +638,26 @@ async function handleSaveAuditReview(e) {
   e.preventDefault();
   const topicId = document.getElementById('audit-topic-id').value;
   const onboardingId = document.getElementById('audit-onboarding-id').value;
-  const internId = document.getElementById('audit-intern-id').value;
+  let internId = document.getElementById('audit-intern-id').value;
   const status = document.getElementById('audit-status').value;
   const scoreVal = document.getElementById('audit-score').value;
   const feedback = document.getElementById('audit-feedback').value;
+
+  if (!internId && currentTargetInternId) {
+    internId = currentTargetInternId;
+  }
+
+  if (!internId) {
+    showToast('Vui lòng chọn 1 Thực tập sinh cụ thể ở bộ lọc phía trên trước khi chấm Audit!', 'warning');
+    return;
+  }
 
   const data = {
     onboarding_id: onboardingId,
     intern_id: internId,
     topic_id: topicId,
     status: status,
-    score: scoreVal ? parseInt(scoreVal) : null,
+    score: scoreVal ? parseFloat(scoreVal) : null,
     feedback: feedback,
   };
 
