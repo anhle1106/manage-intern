@@ -522,7 +522,7 @@ function renderTopics(topics, isProcessing = false) {
                   <strong style="font-size:13px; color:var(--text-primary);">👨‍🏫 Audit Review by ${audit.leader_name}</strong>
                   <span class="audit-badge ${audit.status.toLowerCase()}">${audit.status}</span>
                 </div>
-                ${audit.score !== null && audit.score !== undefined ? `<span style="font-size:13px; font-weight:700; color:var(--primary);">Score: ${audit.score}/100</span>` : ''}
+                ${audit.score !== null && audit.score !== undefined ? `<span style="font-size:13px; font-weight:700; color:var(--primary);">Score: ${audit.score}/10</span>` : ''}
               </div>
               <p style="font-size:13px; color:var(--text-secondary); margin:0;">${audit.feedback || 'No feedback comments provided.'}</p>
             </div>
